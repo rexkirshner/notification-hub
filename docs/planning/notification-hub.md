@@ -464,6 +464,13 @@ interface ListNotificationsQuery {
 - Dashboard defaults to cursor-based for stability
 - Response includes `nextCursor` if more results exist
 
+**`since` + `cursor` interaction:**
+- `since` sets a floor: "only notifications created after this timestamp"
+- `cursor` sets a starting point within that filtered set
+- Both can be used together: `since` filters the result set, `cursor` paginates within it
+- Use case: "give me page 2 of notifications since yesterday" — `since=2024-01-14T00:00:00Z&cursor=...`
+- If `cursor` points to a notification older than `since`, return empty (cursor is outside filtered range)
+
 **Efficient polling:** Use `since` parameter to fetch only new notifications:
 ```bash
 # Initial fetch
@@ -531,12 +538,18 @@ async function streamNotifications(apiKey: string) {
 - `heartbeat` — keepalive every 15s
 
 **Vercel streaming constraints:**
-- Uses **Edge Runtime** for streaming support
+- Uses **Node.js runtime** (not Edge) — Prisma requires Node.js; Edge Runtime doesn't support Prisma's query engine
 - Stream up to **~300 seconds**; must start response within **~25 seconds**
 - **On connect:** immediately write `: connected\n\n` and flush (satisfies the 25s requirement)
 - **Heartbeat every 15s** (not 30s — safer margin for proxies/timeouts)
 - Clients must implement **auto-reconnect** with `Last-Event-ID` header
 - Server sends `id:` field with each event for resumption
+
+**SSE `id:` field semantics:**
+- Format: `{ISO-timestamp}_{cuid}` (e.g., `2024-01-15T10:30:00.000Z_clxyz123`)
+- Encodes both `createdAt` and `id` for deterministic cursor resume
+- On reconnect with `Last-Event-ID`, server parses timestamp and id, then resumes from that point
+- If malformed, server starts from "now" (same as fresh connect)
 
 #### GET /api/notifications/unread-count
 
@@ -601,6 +614,36 @@ curl -X PATCH "https://your-hub.vercel.app/api/notifications/read" \
 **Done when:**
 - `/api/health` returns 200
 - Prisma can migrate and connect in Vercel preview/prod
+
+---
+
+### Milestone 0.5: Streaming Spike
+
+**Goal:** Validate SSE works on Vercel with our stack before building full Consumer API.
+
+This is a risk-reduction milestone. If streaming doesn't work as expected, we need to know early — before building the full Consumer API on top of it.
+
+- [ ] Create minimal `/api/test-stream` endpoint:
+  - Uses Node.js runtime (not Edge) for Prisma compatibility
+  - Immediately writes `: connected\n\n` on connect
+  - Sends heartbeat every 15s
+  - Sends test event every 5s (counter or timestamp)
+  - Runs for 60 seconds then closes
+- [ ] Deploy to Vercel preview
+- [ ] Test with curl: `curl -N https://preview-url.vercel.app/api/test-stream`
+- [ ] Verify: immediate `: connected`, heartbeats arrive, events arrive
+- [ ] Test reconnect: kill curl, reconnect, verify stream resumes
+- [ ] Delete test endpoint after validation (or keep behind feature flag)
+
+**Done when:**
+- SSE streams work reliably on Vercel for 60+ seconds
+- Heartbeats prevent connection timeouts
+- Confident streaming will work for real Consumer API
+
+**Fallback:** If streaming proves problematic on Vercel, document limitations and consider:
+- Polling-only Consumer API (simpler, always works)
+- External streaming service (Pusher, Ably)
+- Self-hosted option for real-time needs
 
 ---
 
@@ -951,7 +994,7 @@ async function streamNotifications(apiKey: string, lastEventId?: string) {
     });
   }
 
-  // Connection closed (Vercel ~30s limit) — reconnect
+  // Connection closed (Vercel ~300s limit) — reconnect
   setTimeout(() => streamNotifications(apiKey, lastEventId), 1000);
 }
 ```
@@ -997,6 +1040,14 @@ func markAsRead(id: String) async throws {
 ### After Milestone 0
 - [ ] `/api/health` returns 200 on Vercel
 - [ ] `npx prisma migrate deploy` succeeds
+
+### After Milestone 0.5
+- [ ] Test stream endpoint works on Vercel preview
+- [ ] `: connected` arrives immediately on connect
+- [ ] Heartbeats arrive every ~15s
+- [ ] Test events arrive as expected
+- [ ] Stream stays open for 60+ seconds without timeout
+- [ ] Decision documented: proceed with SSE or fallback to polling
 
 ### After Milestone 1
 - [ ] POST creates notification in database
