@@ -1,0 +1,599 @@
+# Notification Hub - Implementation Plan (v2)
+
+A centralized notification system where any project can send notifications via HTTP API, with delivery to a web dashboard and iOS push via ntfy.sh.
+
+---
+
+## Architecture
+
+```
+┌─────────────────┐     ┌─────────────────────────────────┐     ┌─────────────────┐
+│  Your Projects  │────▶│  Notification Hub API (Vercel)  │────▶│  ntfy.sh        │
+│  (curl/SDK)     │     │  Next.js + Vercel Postgres      │     │  (iOS Push)     │
+└─────────────────┘     └─────────────────────────────────┘     └─────────────────┘
+                                      │
+                                      ▼
+                              ┌───────────────┐
+                              │ Web Dashboard │
+                              └───────────────┘
+```
+
+## Tech Stack
+
+| Component | Technology |
+|-----------|------------|
+| Framework | Next.js 15 (App Router) |
+| Database | Vercel Postgres |
+| ORM | Prisma |
+| Validation | Zod |
+| UI | Tailwind + shadcn/ui |
+| iOS Push | ntfy.sh |
+
+---
+
+## Security Model
+
+### API Key Permissions
+
+| Endpoint | Required | Notes |
+|----------|----------|-------|
+| `POST /api/notifications` | `canSend` | Sender keys |
+| `GET /api/notifications` | `canRead` OR session | |
+| `PATCH /api/notifications/:id/read` | `canRead` OR session | |
+| `DELETE /api/notifications/:id` | Session only | Admin |
+| `POST /api/keys` | Session only | Admin |
+| `DELETE /api/keys/:id` | Session only | Admin |
+
+### Key Principles
+
+1. **Sender keys should NOT have `canRead`** — compromised CI key can't read history
+2. **Dashboard uses session auth** — httpOnly cookie, not API keys in browser
+3. **CSRF protection required** — all dashboard mutations need CSRF tokens
+
+### Push Security
+
+**Never send secrets via push.** ntfy topics are "security by obscurity."
+
+Use `skipPush: true` for:
+- API keys, tokens, passwords
+- Internal URLs or IP addresses
+- PII or sensitive data
+- Detailed stack traces
+
+### Markdown XSS Safety
+
+When `markdown: true`, sanitize before rendering:
+- Use DOMPurify or safe markdown renderer
+- Never `dangerouslySetInnerHTML` with unsanitized output
+
+---
+
+## Data Model
+
+### Notification
+
+```prisma
+model Notification {
+  id              String   @id @default(cuid())
+
+  // Content
+  title           String   @db.VarChar(200)
+  message         String   @db.Text
+  markdown        Boolean  @default(false)
+
+  // Categorization
+  source          String   // defaults to API key name
+  channel         String   @default("default")
+  category        String?  // "error", "success", "info", "warning"
+  tags            String[]
+
+  // Priority (1-5, maps to ntfy)
+  priority        Int      @default(3)
+
+  // Actions
+  clickUrl        String?
+
+  // Metadata
+  metadata        Json?
+
+  // Delivery (write-first pattern)
+  deliveryStatus  DeliveryStatus @default(PENDING)
+  deliveredAt     DateTime?
+  deliveryError   String?
+  retryCount      Int      @default(0)
+
+  // Read tracking
+  readAt          DateTime?
+
+  // Sender
+  apiKeyId        String
+  apiKey          ApiKey   @relation(fields: [apiKeyId], references: [id])
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([createdAt(sort: Desc)])
+  @@index([source])
+  @@index([channel])
+  @@index([deliveryStatus])
+  @@index([channel, createdAt(sort: Desc)])
+  @@map("notifications")
+}
+
+enum DeliveryStatus {
+  PENDING
+  DELIVERED
+  FAILED
+  SKIPPED
+}
+```
+
+### ApiKey
+
+```prisma
+model ApiKey {
+  id          String   @id @default(cuid())
+  name        String
+  keyHash     String   @unique // SHA-256
+  prefix      String   // "nhk_abc1..." for display
+
+  canSend     Boolean  @default(true)
+  canRead     Boolean  @default(false)
+  rateLimit   Int      @default(100) // RPM
+
+  description String?
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+  isActive    Boolean  @default(true)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  notifications Notification[]
+
+  @@index([prefix])
+  @@map("api_keys")
+}
+```
+
+### IdempotencyRecord
+
+Separate table for correct TTL-based idempotency. The unique constraint ensures exactly-once semantics; a cleanup job removes expired records.
+
+```prisma
+model IdempotencyRecord {
+  id             String   @id @default(cuid())
+  apiKeyId       String
+  idempotencyKey String
+  notificationId String
+  expiresAt      DateTime
+
+  createdAt      DateTime @default(now())
+
+  @@unique([apiKeyId, idempotencyKey])
+  @@index([expiresAt])
+  @@map("idempotency_records")
+}
+```
+
+**Idempotency flow:**
+1. POST with `idempotencyKey` → try INSERT into IdempotencyRecord
+2. If unique constraint violation → fetch existing record → return linked notification
+3. If success → create notification, link it, return
+4. Cleanup job deletes records where `expiresAt < now()`
+
+### Channel
+
+```prisma
+model Channel {
+  id          String   @id @default(cuid())
+  name        String   @unique // "prod", "dev", "personal", "default"
+  ntfyTopic   String?  // null = use NTFY_DEFAULT_TOPIC
+  description String?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("channels")
+}
+```
+
+Channels route to different ntfy topics so you can mute `dev` on your phone without missing `prod`.
+
+### AuditEvent
+
+```prisma
+model AuditEvent {
+  id         String      @id @default(cuid())
+  action     AuditAction
+  actorType  ActorType
+  actorId    String?     // API key ID or null for admin
+  actorIp    String?
+  targetType String?     // "api_key", "notification"
+  targetId   String?
+  metadata   Json?
+
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt(sort: Desc)])
+  @@map("audit_events")
+}
+
+enum AuditAction {
+  API_KEY_CREATED
+  API_KEY_REVOKED
+  DASHBOARD_LOGIN
+  DASHBOARD_LOGIN_FAILED
+  NOTIFICATIONS_BULK_DELETE
+  NOTIFICATIONS_BULK_READ
+}
+
+enum ActorType {
+  ADMIN
+  API_KEY
+  SYSTEM
+}
+```
+
+---
+
+## API Endpoints
+
+```
+POST   /api/notifications           # canSend
+GET    /api/notifications           # canRead or session
+GET    /api/notifications/:id       # canRead or session
+PATCH  /api/notifications/:id/read  # canRead or session
+DELETE /api/notifications/:id       # session only
+
+GET    /api/channels                # canRead or session
+
+POST   /api/keys                    # session only
+GET    /api/keys                    # session only
+DELETE /api/keys/:id                # session only
+
+GET    /api/audit                   # session only
+GET    /api/health                  # public
+```
+
+### POST /api/notifications
+
+```typescript
+interface CreateNotificationRequest {
+  title: string;              // required, max 200
+  message: string;            // required, max 10000
+
+  source?: string;            // defaults to API key name
+  channel?: string;           // defaults to "default"
+  category?: "error" | "success" | "info" | "warning";
+  tags?: string[];            // max 10
+
+  priority?: 1 | 2 | 3 | 4 | 5;
+  markdown?: boolean;
+  clickUrl?: string;
+  metadata?: Record<string, unknown>;
+
+  idempotencyKey?: string;    // recommended for webhooks/CI
+  skipPush?: boolean;         // true = store only, no ntfy
+}
+```
+
+### Write-First Delivery Pattern
+
+```
+1. Validate request
+2. Check idempotency (return existing if duplicate)
+3. Write notification with deliveryStatus = PENDING  ← request succeeds here
+4. If skipPush: set SKIPPED, return
+5. Attempt ntfy push:
+   - Success: set DELIVERED + deliveredAt
+   - Failure: set FAILED + deliveryError
+6. Return notification
+```
+
+POST succeeds even if ntfy is down. Failed deliveries can be retried later.
+
+---
+
+## Milestones
+
+### Milestone 0: Repo + Deployment Skeleton
+
+**Goal:** Running Next.js app on Vercel with database connected.
+
+- [ ] Create Next.js 15 project with App Router
+- [ ] Add Tailwind + shadcn/ui
+- [ ] Provision Vercel Postgres
+- [ ] Add Prisma with initial schema
+- [ ] Add `.env.example` and env validation (t3-env or similar)
+- [ ] Deploy to Vercel
+
+**Done when:**
+- `/api/health` returns 200
+- Prisma can migrate and connect in Vercel preview/prod
+
+---
+
+### Milestone 1: Core Ingestion API
+
+**Goal:** `curl POST` reliably creates notifications with proper auth and write-first delivery.
+
+- [ ] Implement full Prisma schema (Notification, ApiKey, Channel, AuditEvent, IdempotencyRecord)
+- [ ] Seed default channels (prod, dev, personal, default)
+- [ ] Auth middleware:
+  - Parse `Authorization: Bearer ...`
+  - Validate key hash, `isActive`, expiration
+  - Enforce permissions per endpoint
+- [ ] `POST /api/notifications`:
+  - Zod validation
+  - Idempotency check (see Milestone 1.1)
+  - Write-first delivery pattern
+  - Channel → ntfy topic routing
+- [ ] `GET /api/notifications`:
+  - Pagination (page, limit)
+  - Filters: source, channel, category, tags, deliveryStatus, unreadOnly
+  - Enforce `canRead` or session
+- [ ] `GET /api/health`
+
+**Done when:**
+- Sender key (`canSend=true, canRead=false`) can POST but gets 403 on GET
+- Notification appears in ntfy iOS app
+- ntfy down → POST still succeeds, notification ends as FAILED with deliveryError
+
+---
+
+### Milestone 1.1: Correct Idempotency
+
+**Goal:** Exactly-once semantics with proper TTL enforcement.
+
+- [ ] Create IdempotencyRecord table with unique constraint
+- [ ] On POST with `idempotencyKey`:
+  1. Try INSERT into IdempotencyRecord (with `expiresAt = now + 24h`)
+  2. If unique violation: fetch existing → return linked notification (200 OK)
+  3. If success: create notification, return
+- [ ] Add cleanup endpoint or Vercel cron to delete expired records
+
+**Done when:**
+- Duplicate POST with same `idempotencyKey` returns original notification (same `id`)
+- After cleanup runs, same key can create new notification
+
+---
+
+### Milestone 2: Web Dashboard
+
+**Goal:** Usable UI with strong security boundaries.
+
+- [ ] Dashboard auth:
+  - Session-based (httpOnly, secure, sameSite cookie)
+  - Password hash verification
+  - CSRF tokens for all mutations
+  - Log success/failure to AuditEvent
+- [ ] Notification list:
+  - Channel tabs
+  - Filters: source, category, tags, status, unreadOnly
+  - Pagination
+  - Mark read / mark all read
+- [ ] Markdown rendering:
+  - Sanitize with DOMPurify (or safe renderer)
+  - Test that `<script>` and `javascript:` are stripped
+- [ ] API key management:
+  - Create (show plaintext once, then only prefix)
+  - Revoke
+  - List (prefix only)
+  - All actions logged to AuditEvent
+- [ ] Audit log viewer (optional)
+
+**Done when:**
+- Dashboard requires login
+- Failed login attempts appear in audit log
+- Markdown can't execute scripts
+- Key create/revoke works and is audited
+
+---
+
+### Milestone 3: Hardening + Production Readiness
+
+**Goal:** Fast, cheap, stable at scale.
+
+#### Performance
+- [ ] Verify query plans with 10k+ notifications
+- [ ] Add GIN index for tags: `CREATE INDEX ... USING GIN(tags)`
+- [ ] Add full-text search index if needed
+
+#### Rate Limiting
+- [ ] Implement per-key RPM limit (`rateLimit` field)
+- [ ] Storage: Vercel KV for accuracy, or DB-based for low volume
+
+#### Retention
+- [ ] Scheduled cleanup for old notifications (default 30 days)
+- [ ] Scheduled cleanup for expired IdempotencyRecords
+
+#### Retry Delivery
+- [ ] Cron job retries FAILED notifications:
+  - Exponential backoff
+  - Max attempts (e.g., 5)
+  - Track `retryCount` in notification
+  - Stop retrying after max or after 24h
+
+#### SDK
+- [ ] Minimal TypeScript SDK:
+  - `send()` method with full typing
+  - Idempotency key helper
+  - Error handling
+
+**Done when:**
+- Queries stay fast with real volume
+- Rate limiting blocks excessive requests
+- Old data auto-cleaned
+- FAILED notifications eventually retry and deliver
+
+---
+
+## Environment Variables
+
+```env
+# Database
+DATABASE_URL="postgresql://..."
+
+# ntfy.sh
+NTFY_DEFAULT_TOPIC="notification-hub-xxx-default"
+NTFY_BASE_URL="https://ntfy.sh"
+
+# Dashboard auth
+ADMIN_PASSWORD_HASH="..."  # bcrypt
+
+# Optional
+IDEMPOTENCY_TTL_HOURS=24
+RETENTION_DAYS=30
+RETRY_MAX_ATTEMPTS=5
+```
+
+---
+
+## Directory Structure
+
+```
+notification-hub/
+├── .env.example
+├── .vercel-account
+├── package.json
+├── next.config.ts
+├── tailwind.config.ts
+│
+├── prisma/
+│   ├── schema.prisma
+│   ├── seed.ts              # Seed default channels
+│   └── migrations/
+│
+├── src/
+│   ├── app/
+│   │   ├── layout.tsx
+│   │   ├── page.tsx         # Redirect to dashboard or landing
+│   │   │
+│   │   ├── api/
+│   │   │   ├── health/route.ts
+│   │   │   ├── notifications/
+│   │   │   │   ├── route.ts
+│   │   │   │   └── [id]/
+│   │   │   │       ├── route.ts
+│   │   │   │       └── read/route.ts
+│   │   │   ├── channels/route.ts
+│   │   │   ├── keys/
+│   │   │   │   ├── route.ts
+│   │   │   │   └── [id]/route.ts
+│   │   │   └── audit/route.ts
+│   │   │
+│   │   ├── login/page.tsx
+│   │   │
+│   │   └── dashboard/
+│   │       ├── layout.tsx
+│   │       ├── page.tsx              # Notification list
+│   │       ├── settings/page.tsx     # API keys
+│   │       └── audit/page.tsx        # Audit log
+│   │
+│   ├── components/
+│   │   ├── ui/                       # shadcn
+│   │   └── notifications/
+│   │
+│   ├── lib/
+│   │   ├── db.ts                     # Prisma singleton
+│   │   ├── auth.ts                   # Session + API key validation
+│   │   ├── csrf.ts                   # CSRF token helpers
+│   │   ├── ntfy.ts                   # Push delivery
+│   │   ├── idempotency.ts            # Idempotency logic
+│   │   └── validators/               # Zod schemas
+│   │
+│   └── middleware.ts
+│
+└── docs/
+    └── planning/
+```
+
+---
+
+## Usage Examples
+
+### Simple notification
+
+```bash
+curl -X POST https://your-hub.vercel.app/api/notifications \
+  -H "Authorization: Bearer nhk_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{"title": "Deploy Complete", "message": "Production updated"}'
+```
+
+### With idempotency (recommended for webhooks)
+
+```bash
+curl -X POST https://your-hub.vercel.app/api/notifications \
+  -H "Authorization: Bearer nhk_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Build Failed",
+    "message": "CI pipeline error",
+    "channel": "prod",
+    "category": "error",
+    "priority": 4,
+    "idempotencyKey": "gh-run-123-attempt-1"
+  }'
+```
+
+### Sensitive data (skip push)
+
+```bash
+curl -X POST https://your-hub.vercel.app/api/notifications \
+  -H "Authorization: Bearer nhk_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "API Key Created",
+    "message": "New key for service X",
+    "skipPush": true
+  }'
+```
+
+### Shell helper
+
+```bash
+notify() {
+  curl -s -X POST https://your-hub.vercel.app/api/notifications \
+    -H "Authorization: Bearer $NOTIFICATION_HUB_KEY" \
+    -H "Content-Type: application/json" \
+    -d "{\"title\": \"$1\", \"message\": \"${2:-$1}\", \"channel\": \"${3:-default}\"}"
+}
+
+# Usage: notify "Done" "Backup complete" "personal"
+```
+
+---
+
+## Verification Checklist
+
+### After Milestone 0
+- [ ] `/api/health` returns 200 on Vercel
+- [ ] `npx prisma migrate deploy` succeeds
+
+### After Milestone 1
+- [ ] POST creates notification in database
+- [ ] POST succeeds even if ntfy.sh is down (deliveryStatus = FAILED)
+- [ ] Notification appears in ntfy iOS app when ntfy is up
+- [ ] Different channels route to different ntfy topics
+- [ ] `skipPush: true` → deliveryStatus = SKIPPED
+- [ ] Invalid API key → 401
+- [ ] Key with `canSend` but not `canRead` → POST works, GET returns 403
+
+### After Milestone 1.1
+- [ ] Duplicate `idempotencyKey` returns same notification ID
+- [ ] After record expires and cleanup runs, same key creates new notification
+
+### After Milestone 2
+- [ ] Dashboard requires login
+- [ ] Failed login logged to audit
+- [ ] `<script>alert(1)</script>` in markdown doesn't execute
+- [ ] Key create shows plaintext once, then only prefix
+- [ ] Key revoke works and is audited
+
+### After Milestone 3
+- [ ] Queries fast with 10k+ notifications
+- [ ] Rate limit blocks when exceeded
+- [ ] Old notifications auto-deleted
+- [ ] FAILED notification eventually becomes DELIVERED after retry
