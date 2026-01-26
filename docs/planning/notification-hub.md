@@ -697,12 +697,12 @@ This is a risk-reduction milestone. If streaming doesn't work as expected, we ne
 
 ---
 
-### Milestone 1.1: Correct Idempotency
+### Milestone 1.1: Correct Idempotency (In Progress)
 
 **Goal:** Exactly-once semantics with proper TTL enforcement.
 
-- [ ] Create IdempotencyRecord table with unique constraint
-- [ ] On POST with `idempotencyKey`:
+- [x] Create IdempotencyRecord table with unique constraint
+- [x] On POST with `idempotencyKey`:
   1. Check if record exists (fast path: return existing notification)
   2. If not: BEGIN TRANSACTION → create notification → create idempotency record → COMMIT
   3. On unique constraint violation (race): rollback, fetch existing, return
@@ -710,9 +710,9 @@ This is a risk-reduction milestone. If streaming doesn't work as expected, we ne
   - Cron handler must be **idempotent** (safe to rerun if first invocation fails)
 
 **Done when:**
-- Duplicate POST with same `idempotencyKey` returns original notification (same `id`)
-- Concurrent duplicate POSTs don't create orphan notifications
-- After cleanup runs, same key can create new notification
+- [x] Duplicate POST with same `idempotencyKey` returns original notification (same `id`)
+- [x] Concurrent duplicate POSTs don't create orphan notifications (transaction-based)
+- [ ] After cleanup runs, same key can create new notification
 
 ---
 

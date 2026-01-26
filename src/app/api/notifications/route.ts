@@ -365,6 +365,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     where.readAt = null;
   }
 
+  if (params.since) {
+    where.createdAt = { gt: params.since };
+  }
+
   // Calculate pagination
   const skip = (params.page - 1) * params.limit;
 

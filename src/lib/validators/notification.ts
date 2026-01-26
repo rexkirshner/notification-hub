@@ -108,6 +108,20 @@ export const listNotificationsSchema = z.object({
   page: z.coerce.number().int().positive().optional().default(1),
   limit: z.coerce.number().int().min(1).max(100).optional().default(50),
 
+  // Cursor-based pagination
+  since: z
+    .string()
+    .optional()
+    .refine(
+      (val) => {
+        if (!val) return true;
+        const date = new Date(val);
+        return !isNaN(date.getTime());
+      },
+      { message: "since must be a valid ISO timestamp" }
+    )
+    .transform((val) => (val ? new Date(val) : undefined)),
+
   // Filters
   channel: z.string().optional(),
   source: z.string().optional(),
@@ -131,3 +145,39 @@ export const listNotificationsSchema = z.object({
 });
 
 export type ListNotificationsInput = z.infer<typeof listNotificationsSchema>;
+
+/**
+ * Schema for unread count request.
+ */
+export const unreadCountSchema = z.object({
+  channel: z.string().optional(),
+});
+
+export type UnreadCountInput = z.infer<typeof unreadCountSchema>;
+
+/**
+ * Schema for bulk mark read request.
+ */
+export const bulkMarkReadSchema = z
+  .object({
+    ids: z.array(z.string()).optional(),
+    before: z
+      .string()
+      .optional()
+      .refine(
+        (val) => {
+          if (!val) return true;
+          const date = new Date(val);
+          return !isNaN(date.getTime());
+        },
+        { message: "before must be a valid ISO timestamp" }
+      )
+      .transform((val) => (val ? new Date(val) : undefined)),
+    channel: z.string().optional(),
+  })
+  .refine(
+    (data) => data.ids || data.before || data.channel,
+    { message: "At least one of ids, before, or channel must be provided" }
+  );
+
+export type BulkMarkReadInput = z.infer<typeof bulkMarkReadSchema>;
