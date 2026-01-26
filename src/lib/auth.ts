@@ -5,7 +5,7 @@
  * API keys use SHA-256 hashing for secure storage.
  */
 
-import { createHash } from "crypto";
+import { createHash, randomBytes } from "crypto";
 import { db } from "./db";
 import type { ApiKey } from "@prisma/client";
 
@@ -19,16 +19,14 @@ export function hashApiKey(key: string): string {
 
 /**
  * Generate a new API key with prefix for display.
- * Format: nhk_<32 random chars>
+ * Format: nhk_<32 random hex chars>
  * Returns both the plaintext key (show once) and the prefix (for display).
  */
 export function generateApiKey(): { key: string; prefix: string; hash: string } {
-  const randomBytes = createHash("sha256")
-    .update(Date.now().toString() + Math.random().toString())
-    .digest("hex")
-    .slice(0, 32);
+  // Use cryptographically secure random bytes
+  const random = randomBytes(16).toString("hex"); // 32 hex chars
 
-  const key = `nhk_${randomBytes}`;
+  const key = `nhk_${random}`;
   const prefix = key.slice(0, 12); // "nhk_" + first 8 chars
   const hash = hashApiKey(key);
 
