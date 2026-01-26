@@ -67,6 +67,14 @@ Use `skipPush: true` for notifications containing:
 
 These will be stored in the database and visible on the dashboard, but won't be pushed to iOS.
 
+### Markdown XSS Safety
+
+When `markdown: true`, the message may contain user-supplied markdown that gets rendered in the dashboard. **Always sanitize before rendering.**
+
+- Use DOMPurify or similar to sanitize HTML output
+- Alternatively, use a safe markdown renderer that only allows a restricted subset (no raw HTML, no javascript: links)
+- Never use `dangerouslySetInnerHTML` with unsanitized markdown output
+
 ---
 
 ## Data Model
@@ -200,6 +208,66 @@ model Channel {
 - `personal` - Personal reminders, non-work
 - `default` - Fallback for notifications without a channel
 
+### Audit Log
+
+Track admin actions for security visibility. Lightweight table for key operations.
+
+```prisma
+model AuditEvent {
+  id          String   @id @default(cuid())
+
+  // What happened
+  action      AuditAction
+
+  // Who did it
+  actorType   ActorType  // "admin" (dashboard session) or "api_key"
+  actorId     String?    // API key ID if applicable
+  actorIp     String?    // IP address
+
+  // What was affected
+  targetType  String?    // "api_key", "notification", etc.
+  targetId    String?    // ID of affected resource
+
+  // Additional context
+  metadata    Json?      // Action-specific details
+
+  createdAt   DateTime   @default(now())
+
+  @@index([action])
+  @@index([createdAt])
+  @@index([actorId])
+  @@map("audit_events")
+}
+
+enum AuditAction {
+  // API Key lifecycle
+  API_KEY_CREATED
+  API_KEY_REVOKED
+  API_KEY_EXPIRED
+
+  // Dashboard
+  DASHBOARD_LOGIN
+  DASHBOARD_LOGIN_FAILED
+
+  // Bulk operations
+  NOTIFICATIONS_BULK_DELETE
+  NOTIFICATIONS_BULK_READ
+}
+
+enum ActorType {
+  ADMIN    // Dashboard session
+  API_KEY  // Programmatic access
+  SYSTEM   // Automated (e.g., expiration job)
+}
+```
+
+**Events to log:**
+- API key created (who, key name, permissions)
+- API key revoked (who, which key)
+- API key auto-expired (which key)
+- Dashboard login success/failure (IP, timestamp)
+- Bulk delete/mark-read operations (count, filters used)
+
 ### Database Indexes
 
 Create these indexes for query performance:
@@ -243,6 +311,8 @@ POST   /api/keys                    # Create API key (admin only)
 GET    /api/keys                    # List keys (admin only)
 DELETE /api/keys/:id                # Revoke key (admin only)
 
+GET    /api/audit                   # List audit events (admin only)
+
 GET    /api/health                  # Health check (public)
 ```
 
@@ -282,10 +352,25 @@ interface CreateNotificationRequest {
 
 ### Idempotency Behavior
 
+**Rule:** For a given `(apiKeyId, idempotencyKey)` pair, only one notification can exist within the TTL window (default 24 hours).
+
 When `idempotencyKey` is provided:
-1. Check if a notification with this key exists for this API key (within 24 hours)
-2. If exists: return the existing notification (200 OK, same response)
-3. If not: create new notification normally
+1. Query: `SELECT * FROM notifications WHERE api_key_id = ? AND idempotency_key = ? AND created_at > NOW() - INTERVAL '24 hours'`
+2. If found: Return the existing notification (200 OK, identical response body)
+3. If not found: Create new notification normally
+
+**Semantics:**
+- Same key + same API key + within TTL = returns original (no side effects)
+- Same key + different API key = creates new (keys are namespaced)
+- Same key + after TTL expires = creates new (TTL has passed)
+- The original notification's `deliveryStatus` is returned as-is (even if FAILED)
+
+**Index:** Partial unique index ensures database-level enforcement:
+```sql
+CREATE UNIQUE INDEX idx_notifications_idempotency
+  ON notifications(api_key_id, idempotency_key)
+  WHERE idempotency_key IS NOT NULL AND created_at > NOW() - INTERVAL '24 hours';
+```
 
 This prevents duplicate notifications when webhooks retry or CI jobs re-run.
 
@@ -425,6 +510,25 @@ default     notification-hub-rex-default-k9w1x     Fallback
 
 This lets you mute `dev` notifications on your phone without missing `prod` alerts.
 
+### Delivery Pattern (Write-First, Then Push)
+
+The API always writes to the database first, then attempts push delivery. This ensures:
+- The POST request succeeds even if ntfy.sh is down
+- Notifications queue up and can be retried later
+- No data loss from transient push failures
+
+```
+1. Validate request + check idempotency
+2. Write to DB with deliveryStatus = PENDING  ← Request succeeds here
+3. Attempt ntfy.sh push
+4. Update deliveryStatus:
+   - DELIVERED (+ deliveredAt) if push succeeded
+   - FAILED (+ deliveryError) if push failed
+   - SKIPPED if skipPush was true
+```
+
+Future enhancement: A background job could retry FAILED notifications periodically.
+
 ### Implementation
 
 ```typescript
@@ -468,13 +572,15 @@ export async function sendToNtfy(notification: Notification, channel: Channel) {
 
 1. Database indexes verified/optimized for query patterns
 2. Dashboard auth (simple password or better)
-3. Dashboard layout with shadcn/ui
-4. Notification list with channel tabs
-5. Filtering by source, category, tags, date, read status
-6. Search functionality
-7. Mark as read / Mark all read
-8. API key management UI
-9. SSE endpoint for real-time updates (optional)
+3. Audit logging for admin actions (login, key create/revoke)
+4. Dashboard layout with shadcn/ui
+5. Notification list with channel tabs
+6. Filtering by source, category, tags, date, read status
+7. Search functionality
+8. Mark as read / Mark all read
+9. API key management UI
+10. Audit log viewer (optional, admin only)
+11. SSE endpoint for real-time updates (optional)
 
 **Result:** Full web interface for viewing/managing notifications
 
@@ -518,6 +624,7 @@ notification-hub/
 │   │   │   │       └── read/route.ts
 │   │   │   ├── channels/route.ts
 │   │   │   ├── keys/route.ts
+│   │   │   ├── audit/route.ts
 │   │   │   └── health/route.ts
 │   │   └── (dashboard)/
 │   │       ├── layout.tsx
@@ -569,10 +676,12 @@ RETENTION_DAYS=30          # Auto-delete after this many days
 
 ### After Phase 1
 - [ ] `curl POST` creates notification in database
+- [ ] POST succeeds even if ntfy.sh is unreachable (write-first pattern)
+- [ ] Delivery failure sets `deliveryStatus = FAILED` with error message
 - [ ] Duplicate `idempotencyKey` returns existing notification (not duplicate)
 - [ ] Notification appears in ntfy iOS app within seconds
 - [ ] Different channels route to different ntfy topics
-- [ ] `skipPush: true` stores but doesn't push
+- [ ] `skipPush: true` stores with `deliveryStatus = SKIPPED`
 - [ ] `curl GET` returns notification list
 - [ ] Invalid API key returns 401
 - [ ] API key without `canRead` cannot GET notifications
@@ -580,12 +689,16 @@ RETENTION_DAYS=30          # Auto-delete after this many days
 
 ### After Phase 2
 - [ ] Dashboard requires authentication
+- [ ] Failed login attempts are logged to audit table
+- [ ] Successful login is logged to audit table
 - [ ] Dashboard loads and shows notifications
 - [ ] Channel tabs filter correctly
 - [ ] Filtering by source/category/tags works
 - [ ] Search finds notifications by title/message
 - [ ] Mark as read updates `readAt` timestamp
 - [ ] Can create/revoke API keys (admin only)
+- [ ] Key create/revoke actions logged to audit table
+- [ ] Markdown notifications render safely (no XSS)
 - [ ] Queries are fast even with 10k+ notifications
 
 ### After Phase 3
