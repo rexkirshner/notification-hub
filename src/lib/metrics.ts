@@ -29,9 +29,6 @@ interface CounterMetrics {
 
   // Rate limiting
   rate_limit_exceeded: number;
-
-  // Errors
-  errors_total: number;
 }
 
 interface HistogramBucket {
@@ -69,7 +66,6 @@ const metrics: Metrics = {
     api_key_auth_success: 0,
     api_key_auth_failure: 0,
     rate_limit_exceeded: 0,
-    errors_total: 0,
   },
   histograms: {
     post_latency: { le100: 0, le500: 0, le2000: 0, leInf: 0 },
