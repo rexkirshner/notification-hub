@@ -109,6 +109,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         authResult.apiKey.id,
         authResult.apiKey.rateLimit
       );
+      recordDuration("post_latency", Date.now() - startTime);
       const response = NextResponse.json(existingReplay, { status: 200 });
       response.headers.set("X-Idempotent-Replay", "true");
       const headers = getRateLimitHeaders(rateLimitResult);
@@ -168,6 +169,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // Handle race condition: another request created this notification
     // between our check and creation (rare but possible)
     if (isReplay) {
+      recordDuration("post_latency", Date.now() - startTime);
       const response = NextResponse.json(notification, { status: 200 });
       response.headers.set("X-Idempotent-Replay", "true");
       const headers = getRateLimitHeaders(rateLimitResult);
