@@ -67,7 +67,7 @@ Open [http://localhost:3000](http://localhost:3000) to see the dashboard.
 ```bash
 # Use the development sender key (created by seed)
 curl -X POST http://localhost:3000/api/notifications \
-  -H "Authorization: Bearer nhk_dev_sender_key_for_testing_only" \
+  -H "Authorization: Bearer nhk_test_sender_key_12345678" \
   -H "Content-Type: application/json" \
   -d '{"title": "Hello", "message": "First notification!"}'
 ```
