@@ -12,8 +12,12 @@ import { db } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
+// Read version from package.json at build time
+const APP_VERSION = process.env.npm_package_version || "0.1.0";
+
 interface HealthResponse {
   status: "healthy" | "degraded" | "unhealthy";
+  version: string;
   timestamp: string;
   checks: {
     database: "connected" | "disconnected";
@@ -29,8 +33,8 @@ export async function GET(): Promise<NextResponse<HealthResponse>> {
     // Simple query to verify connection
     await db.$queryRaw`SELECT 1`;
     databaseStatus = "connected";
-  } catch {
-    console.error("Health check: Database connection failed");
+  } catch (error) {
+    console.error("Health check: Database connection failed:", error);
   }
 
   const status = databaseStatus === "connected" ? "healthy" : "unhealthy";
@@ -38,6 +42,7 @@ export async function GET(): Promise<NextResponse<HealthResponse>> {
   return NextResponse.json(
     {
       status,
+      version: APP_VERSION,
       timestamp,
       checks: {
         database: databaseStatus,
