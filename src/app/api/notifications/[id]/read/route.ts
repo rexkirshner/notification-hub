@@ -40,9 +40,10 @@ export async function PATCH(
     );
   }
 
-  // Check if notification exists
+  // Fetch notification with channel included
   const existing = await db.notification.findUnique({
     where: { id },
+    include: { channel: true },
   });
 
   if (!existing) {
@@ -54,11 +55,7 @@ export async function PATCH(
 
   // If already read, return as-is
   if (existing.readAt) {
-    const notification = await db.notification.findUnique({
-      where: { id },
-      include: { channel: true },
-    });
-    return NextResponse.json(notification);
+    return NextResponse.json(existing);
   }
 
   // Mark as read
