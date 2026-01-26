@@ -368,6 +368,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     where.deliveryStatus = params.deliveryStatus as DeliveryStatus;
   }
 
+  if (params.minPriority) {
+    where.priority = { gte: params.minPriority };
+  }
+
   if (params.unreadOnly) {
     where.readAt = null;
   }

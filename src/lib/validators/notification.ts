@@ -126,6 +126,7 @@ export const listNotificationsSchema = z.object({
   channel: z.string().optional(),
   source: z.string().optional(),
   category: categorySchema.optional(),
+  minPriority: z.coerce.number().int().min(1).max(5).optional(),
   tags: z
     .string()
     .transform((s) => s.split(",").filter(Boolean))

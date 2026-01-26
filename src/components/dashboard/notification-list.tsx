@@ -64,6 +64,9 @@ export function NotificationList({ filters }: NotificationListProps) {
       if (filters.category) {
         params.set("category", filters.category);
       }
+      if (filters.minPriority) {
+        params.set("minPriority", String(filters.minPriority));
+      }
       if (filters.unreadOnly) {
         params.set("unreadOnly", "true");
       }
@@ -87,16 +90,7 @@ export function NotificationList({ filters }: NotificationListProps) {
         }
 
         const data = await response.json();
-
-        // Client-side filter by minPriority (API doesn't support this filter)
-        let filtered = data.data;
-        if (filters.minPriority) {
-          filtered = filtered.filter(
-            (n: Notification) => n.priority >= filters.minPriority!
-          );
-        }
-
-        setNotifications(filtered);
+        setNotifications(data.data);
         setPagination(data.pagination);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Unknown error");
@@ -104,7 +98,7 @@ export function NotificationList({ filters }: NotificationListProps) {
         setIsLoading(false);
       }
     },
-    [buildQueryString, filters.minPriority]
+    [buildQueryString]
   );
 
   // Reset to page 1 when filters change
