@@ -539,7 +539,8 @@ async function streamNotifications(apiKey: string) {
 
 **Vercel streaming constraints:**
 - Uses **Node.js runtime** (not Edge) — Prisma requires Node.js; Edge Runtime doesn't support Prisma's query engine
-- Stream up to **~300 seconds**; must start response within **~25 seconds**
+- Set `export const maxDuration = 300` on the route to configure stream duration
+- Stream up to **maxDuration seconds** (we use 300); must start response within **~25 seconds**
 - **On connect:** immediately write `: connected\n\n` and flush (satisfies the 25s requirement)
 - **Heartbeat every 15s** (not 30s — safer margin for proxies/timeouts)
 - Clients must implement **auto-reconnect** with `Last-Event-ID` header
@@ -708,12 +709,13 @@ This is a risk-reduction milestone. If streaming doesn't work as expected, we ne
   - Optional `channel` filter
   - **Add partial index** for unread queries (see schema note)
 - [ ] `GET /api/notifications/stream` (SSE):
-  - Server-Sent Events endpoint using **Edge Runtime**
+  - Server-Sent Events endpoint using **Node.js runtime** (Prisma requires Node.js)
+  - Set `export const maxDuration = 300` on route (explicitly configure stream duration)
   - Real-time push of new notifications
   - **On connect:** immediately write `: connected\n\n` (satisfies 25s requirement)
   - **Heartbeat every 15s** (safer margin for proxies)
   - Optional `channel` and `minPriority` filters
-  - **Vercel constraint:** stream up to ~300s; client auto-reconnects
+  - **Vercel constraint:** stream up to `maxDuration` seconds; client auto-reconnects
   - Include `id:` field in events for client reconnect with `Last-Event-ID`
   - Auth: session cookie for dashboard, API key header for external clients
 - [ ] `PATCH /api/notifications/read` (bulk):
@@ -984,7 +986,8 @@ async function streamNotifications(apiKey: string, lastEventId?: string) {
     if (done) break;
 
     const chunk = decoder.decode(value);
-    // Parse SSE: "id: abc123\nevent: notification\ndata: {...}\n\n"
+    // IMPORTANT: Use buffered parser from Consumer API section above —
+    // chunks may be partial; always split on \n\n and buffer incomplete events
     parseSSE(chunk, (event, data, id) => {
       if (event === 'notification') {
         const notification = JSON.parse(data);
