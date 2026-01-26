@@ -80,6 +80,21 @@ When `markdown: true`, sanitize before rendering:
 - Use DOMPurify or safe markdown renderer
 - Never `dangerouslySetInnerHTML` with unsanitized output
 
+### clickUrl Validation
+
+Validate `clickUrl` to allow only safe schemes:
+- **Allowed:** `http://`, `https://`
+- **Blocked:** `javascript:`, `data:`, `file:`, `vbscript:`, etc.
+
+This prevents malicious URLs from being rendered/opened by consumer apps.
+
+### Login Throttling
+
+Beyond logging failed logins, implement IP-based rate limiting on `/api/auth/login`:
+- After 5 failed attempts from same IP: add progressive delay (1s, 2s, 4s...)
+- After 10 failed attempts: block IP for 15 minutes
+- Consider CAPTCHA after 3 failures (optional)
+
 ---
 
 ## Data Model
@@ -137,6 +152,11 @@ model Notification {
   @@index([channelId, createdAt(sort: Desc)])
   @@map("notifications")
 }
+
+// Additional index (add via raw SQL migration - Prisma doesn't support partial indexes):
+// CREATE INDEX idx_notifications_unread ON notifications(channel_id, created_at DESC)
+//   WHERE read_at IS NULL;
+// This optimizes the unread-count query which will be the hottest endpoint.
 
 enum DeliveryStatus {
   PENDING
@@ -382,7 +402,7 @@ interface ListNotificationsQuery {
   limit?: number;             // default: 50, max: 100
 
   // Cursor-based pagination (alternative to page)
-  afterId?: string;           // return notifications after this ID
+  cursor?: string;            // opaque cursor from previous response
   since?: string;             // ISO timestamp - only notifications after this time
 
   // Filters
@@ -399,6 +419,8 @@ interface ListNotificationsQuery {
   order?: "asc" | "desc";     // default: desc
 }
 ```
+
+**Cursor pagination:** Uses compound cursor `{ createdAt, id }` encoded as opaque string. This avoids duplicates/gaps under concurrent inserts (unlike `afterId` alone which is unstable when sorting by `createdAt`).
 
 **Efficient polling:** Use `since` parameter to fetch only new notifications:
 ```bash
@@ -459,7 +481,8 @@ async function streamNotifications(apiKey: string) {
 
 **Vercel streaming constraints:**
 - Uses **Edge Runtime** for streaming support
-- Max connection duration: ~30 seconds (Vercel limit)
+- Stream up to **~300 seconds**; must start response within **~25 seconds**
+- Heartbeat every 30s satisfies the "start sending" requirement
 - Clients must implement **auto-reconnect** with `Last-Event-ID` header
 - Server sends `id:` field with each event for resumption
 
@@ -541,6 +564,7 @@ curl -X PATCH "https://your-hub.vercel.app/api/notifications/read" \
   - Enforce permissions per endpoint
 - [ ] `POST /api/notifications`:
   - Zod validation
+  - **clickUrl validation** (only http/https schemes)
   - Idempotency check (see Milestone 1.1)
   - Write-first delivery pattern
   - Channel → ntfy topic routing
@@ -582,17 +606,18 @@ curl -X PATCH "https://your-hub.vercel.app/api/notifications/read" \
 
 - [ ] `GET /api/notifications` enhancements:
   - Add `since` parameter (ISO timestamp)
-  - Add `afterId` parameter (cursor-based pagination)
+  - Add `cursor` parameter (compound `{ createdAt, id }` for stable pagination)
   - Efficient queries with proper indexes
 - [ ] `GET /api/notifications/unread-count`:
   - Lightweight count query
   - Optional `channel` filter
+  - **Add partial index** for unread queries (see schema note)
 - [ ] `GET /api/notifications/stream` (SSE):
   - Server-Sent Events endpoint using **Edge Runtime**
   - Real-time push of new notifications
-  - Heartbeat every 30s
+  - Heartbeat every 30s (must start response within 25s)
   - Optional `channel` and `minPriority` filters
-  - **Vercel constraint:** ~30s max connection duration
+  - **Vercel constraint:** stream up to ~300s; client auto-reconnects
   - Include `id:` field in events for client reconnect with `Last-Event-ID`
   - Auth: session cookie for dashboard, API key header for external clients
 - [ ] `PATCH /api/notifications/read` (bulk):
@@ -618,6 +643,7 @@ curl -X PATCH "https://your-hub.vercel.app/api/notifications/read" \
   - Password hash verification
   - CSRF tokens for all mutations
   - Log success/failure to AuditEvent
+  - **Login throttling:** IP-based rate limit (5 failures → delay, 10 → block 15min)
 - [ ] Notification list:
   - Channel tabs
   - Filters: source, category, tags, status, unreadOnly
@@ -951,7 +977,9 @@ func markAsRead(id: String) async throws {
 ### After Milestone 2
 - [ ] Dashboard requires login
 - [ ] Failed login logged to audit
+- [ ] Login throttling blocks after repeated failures from same IP
 - [ ] `<script>alert(1)</script>` in markdown doesn't execute
+- [ ] `javascript:alert(1)` in clickUrl is rejected (only http/https allowed)
 - [ ] Key create shows plaintext once, then only prefix
 - [ ] Key revoke works and is audited
 
