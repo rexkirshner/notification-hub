@@ -18,3 +18,8 @@ CREATE INDEX IF NOT EXISTS idx_notifications_unread
 -- Optimizes: WHERE channelId = ? AND deliveryStatus = ? ORDER BY createdAt DESC
 CREATE INDEX IF NOT EXISTS idx_notifications_channel_status_created
   ON notifications("channelId", "deliveryStatus", "createdAt" DESC);
+
+-- Index for rate limiting queries
+-- Optimizes: SELECT COUNT(*) WHERE apiKeyId = ? AND createdAt >= ?
+CREATE INDEX IF NOT EXISTS idx_notifications_apikey_created
+  ON notifications("apiKeyId", "createdAt" DESC);

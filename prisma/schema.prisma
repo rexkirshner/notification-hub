@@ -61,6 +61,7 @@ model Notification {
   @@index([channelId])
   @@index([deliveryStatus])
   @@index([channelId, createdAt(sort: Desc)])
+  @@index([apiKeyId, createdAt(sort: Desc)]) // Rate limiting queries
   @@map("notifications")
 }
 
