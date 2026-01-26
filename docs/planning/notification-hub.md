@@ -778,9 +778,9 @@ This is a risk-reduction milestone. If streaming doesn't work as expected, we ne
 - [x] Markdown rendering:
   - Sanitize with DOMPurify
   - Only safe HTML tags allowed
-- [ ] API key management:
+- [x] API key management:
   - Create (show plaintext once, then only prefix)
-  - Revoke
+  - Revoke (soft delete)
   - List (prefix only)
   - All actions logged to AuditEvent
 - [ ] Audit log viewer (optional)
@@ -1127,9 +1127,10 @@ func markAsRead(id: String) async throws {
 - [x] Login throttling blocks after repeated failures from same IP
 - [x] `<script>alert(1)</script>` in markdown doesn't execute (DOMPurify)
 - [x] `javascript:alert(1)` in clickUrl is rejected (only http/https allowed)
-- [ ] Key create shows plaintext once, then only prefix
-- [ ] Key revoke works and is audited
-- [ ] CSRF tokens protect dashboard mutations
+- [x] Key create shows plaintext once, then only prefix
+- [x] Key revoke works and is audited
+- [ ] CSRF tokens protect dashboard mutations (low priority for single-user app)
+- [ ] Notification filters (channel, category, etc.)
 
 ### After Milestone 3
 - [ ] Queries fast with 10k+ notifications
