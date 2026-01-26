@@ -107,3 +107,41 @@ export function hasPermission(
 ): boolean {
   return apiKey[permission];
 }
+
+/**
+ * Result of combined API key + session validation.
+ */
+export interface DualAuthResult {
+  success: boolean;
+  apiKey?: ApiKey;
+  isSession?: boolean;
+  error?: string;
+}
+
+/**
+ * Validate either API key or session authentication.
+ * Used for Consumer API endpoints that accept both auth methods.
+ *
+ * @param authHeader - Authorization header (for API key auth)
+ * @param sessionAuth - Whether session is authenticated (call isAuthenticated() before)
+ */
+export async function validateApiKeyOrSession(
+  authHeader: string | null,
+  sessionAuth: boolean
+): Promise<DualAuthResult> {
+  // Session auth takes precedence (dashboard user)
+  if (sessionAuth) {
+    return { success: true, isSession: true };
+  }
+
+  // Fall back to API key auth
+  if (authHeader) {
+    const result = await validateApiKey(authHeader);
+    if (result.success) {
+      return { success: true, apiKey: result.apiKey, isSession: false };
+    }
+    return { success: false, error: result.error };
+  }
+
+  return { success: false, error: "Authentication required" };
+}
