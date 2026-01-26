@@ -811,17 +811,19 @@ This is a risk-reduction milestone. If streaming doesn't work as expected, we ne
 - [ ] DB-based acceptable for personal/low-volume use (simpler, no extra service)
 
 #### Retention
-- [ ] Scheduled cleanup for old notifications (default 30 days)
-- [ ] Scheduled cleanup for expired IdempotencyRecords
+- [x] Scheduled cleanup for old notifications (default 30 days via RETENTION_DAYS)
+- [x] Scheduled cleanup for expired IdempotencyRecords
+- [x] Scheduled cleanup for old audit events (90 days)
 
 **Vercel Cron note:** Vercel won't auto-retry failed cron invocations. All cron handlers must be **idempotent** — safe to rerun if a previous run partially failed.
 
 #### Retry Delivery
-- [ ] Cron job retries FAILED notifications:
-  - Exponential backoff
-  - Max attempts (e.g., 5)
-  - Track `retryCount` in notification
-  - Stop retrying after max or after 24h
+- [x] Cron job retries FAILED notifications (every 15 minutes):
+  - Exponential backoff (1min, 2min, 4min, 8min, 16min)
+  - Max RETRY_MAX_ATTEMPTS (default 5) attempts
+  - Tracks `retryCount` in notification
+  - Stops retrying after max attempts or 24 hours from creation
+  - Processes up to 20 notifications per run
 
 #### SDK
 - [ ] Minimal TypeScript SDK:
@@ -1135,8 +1137,10 @@ func markAsRead(id: String) async throws {
 - [ ] CSRF tokens protect dashboard mutations (low priority for single-user app)
 - [x] Notification filters (channel, category, priority, unread only)
 
-### After Milestone 3
+### After Milestone 3 (In Progress)
 - [ ] Queries fast with 10k+ notifications
 - [ ] Rate limit blocks when exceeded
-- [ ] Old notifications auto-deleted
-- [ ] FAILED notification eventually becomes DELIVERED after retry
+- [x] Old notifications auto-deleted (RETENTION_DAYS, default 30)
+- [x] Old audit events auto-deleted (90 days)
+- [x] FAILED notification eventually becomes DELIVERED after retry
+- [x] Retry cron with exponential backoff (every 15 min)
