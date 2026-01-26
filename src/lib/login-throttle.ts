@@ -43,7 +43,8 @@ export function getClientIp(headers: Headers): string {
 
 /**
  * Check if an IP is currently throttled.
- * Returns null if not throttled, or the delay in ms to wait.
+ * Returns { blocked: false, delayMs: 0 } if not throttled,
+ * or { blocked: true/false, delayMs: N } for throttle state.
  */
 export function checkThrottle(ip: string): { blocked: boolean; delayMs: number } {
   const record = throttleMap.get(ip);
