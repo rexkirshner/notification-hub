@@ -1,0 +1,26 @@
+# Local development database
+# Start with: docker compose up -d
+# Stop with: docker compose down
+# Reset with: docker compose down -v && docker compose up -d
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: notification-hub-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: notification_hub
+    ports:
+      - "5437:5432"  # Using 5437 to avoid conflicts with other local Postgres instances
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:

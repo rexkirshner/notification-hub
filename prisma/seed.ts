@@ -2,12 +2,20 @@
  * Database Seed Script
  *
  * Seeds the database with default channels required for the notification hub.
- * Run with: npx prisma db seed
+ * Run with: pnpm db:seed
  */
 
+import "dotenv/config";
+import { Pool } from "pg";
+import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
 
-const prisma = new PrismaClient();
+// Create connection with adapter (required for Prisma 7+)
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+});
+const adapter = new PrismaPg(pool);
+const prisma = new PrismaClient({ adapter });
 
 const defaultChannels = [
   {
@@ -56,4 +64,5 @@ main()
   })
   .finally(async () => {
     await prisma.$disconnect();
+    await pool.end();
   });
