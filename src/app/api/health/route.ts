@@ -12,8 +12,8 @@ import { db } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
-// Read version from package.json at build time
-const APP_VERSION = process.env.npm_package_version || "0.1.0";
+// App version - update this when releasing new versions
+const APP_VERSION = "0.1.0";
 
 interface HealthResponse {
   status: "healthy" | "degraded" | "unhealthy";
