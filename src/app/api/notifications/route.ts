@@ -11,7 +11,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getEnv } from "@/lib/env";
-import { validateApiKey, hasPermission } from "@/lib/auth";
+import { validateApiKey, validateApiKeyOrSession, hasPermission } from "@/lib/auth";
+import { isAuthenticated } from "@/lib/session";
 import {
   createNotificationSchema,
   listNotificationsSchema,
@@ -295,20 +296,22 @@ async function createNotificationWithIdempotency(
  * List notifications with filters and pagination.
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  // Validate API key
-  const authResult = await validateApiKey(
-    request.headers.get("Authorization")
+  // Validate session or API key
+  const sessionAuth = await isAuthenticated();
+  const authResult = await validateApiKeyOrSession(
+    request.headers.get("Authorization"),
+    sessionAuth
   );
 
-  if (!authResult.success || !authResult.apiKey) {
+  if (!authResult.success) {
     return NextResponse.json(
       { error: authResult.error || "Unauthorized" },
       { status: 401 }
     );
   }
 
-  // Check canRead permission
-  if (!hasPermission(authResult.apiKey, "canRead")) {
+  // Check canRead permission (session auth has implicit read access)
+  if (!authResult.isSession && authResult.apiKey && !hasPermission(authResult.apiKey, "canRead")) {
     return NextResponse.json(
       { error: "API key does not have read permission" },
       { status: 403 }

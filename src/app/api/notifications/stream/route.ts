@@ -20,7 +20,8 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { validateApiKey, hasPermission } from "@/lib/auth";
+import { validateApiKeyOrSession, hasPermission } from "@/lib/auth";
+import { isAuthenticated } from "@/lib/session";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 
@@ -67,20 +68,22 @@ function formatEventId(createdAt: Date, id: string): string {
 }
 
 export async function GET(request: NextRequest): Promise<Response> {
-  // Validate API key
-  const authResult = await validateApiKey(
-    request.headers.get("Authorization")
+  // Validate session or API key
+  const sessionAuth = await isAuthenticated();
+  const authResult = await validateApiKeyOrSession(
+    request.headers.get("Authorization"),
+    sessionAuth
   );
 
-  if (!authResult.success || !authResult.apiKey) {
+  if (!authResult.success) {
     return NextResponse.json(
       { error: authResult.error || "Unauthorized" },
       { status: 401 }
     );
   }
 
-  // Check canRead permission
-  if (!hasPermission(authResult.apiKey, "canRead")) {
+  // Check canRead permission (session auth has implicit read access)
+  if (!authResult.isSession && authResult.apiKey && !hasPermission(authResult.apiKey, "canRead")) {
     return NextResponse.json(
       { error: "API key does not have read permission" },
       { status: 403 }
