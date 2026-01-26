@@ -60,9 +60,17 @@ export async function checkRateLimit(
  * Get rate limit headers for HTTP response.
  */
 export function getRateLimitHeaders(result: RateLimitResult): Record<string, string> {
+  const resetTimestamp = Math.ceil(result.resetAt.getTime() / 1000);
+  const retryAfterSeconds = Math.max(
+    1,
+    Math.ceil((result.resetAt.getTime() - Date.now()) / 1000)
+  );
+
   return {
     "X-RateLimit-Limit": String(result.limit),
     "X-RateLimit-Remaining": String(result.remaining),
-    "X-RateLimit-Reset": String(Math.ceil(result.resetAt.getTime() / 1000)),
+    "X-RateLimit-Reset": String(resetTimestamp),
+    // Retry-After is included for 429 responses (clients can use this for backoff)
+    "Retry-After": String(retryAfterSeconds),
   };
 }
