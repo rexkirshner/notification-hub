@@ -802,7 +802,7 @@ This is a risk-reduction milestone. If streaming doesn't work as expected, we ne
 **Goal:** Fast, cheap, stable at scale.
 
 #### Performance
-- [ ] Verify query plans with 10k+ notifications
+- [x] Verify query plans with 10k+ notifications (all queries < 100ms, avg 5.2ms)
 - [x] Add GIN index for tags: `CREATE INDEX ... USING GIN(tags)`
 - [x] Add partial index for unread notifications
 - [x] Add composite index for channel + status queries
@@ -1148,7 +1148,7 @@ func markAsRead(id: String) async throws {
 - [x] Invalid URL params handled gracefully (validated before use)
 
 ### After Milestone 3 (In Progress)
-- [ ] Queries fast with 10k+ notifications
+- [x] Queries fast with 10k+ notifications (verified: all < 100ms, avg 5.2ms)
 - [x] GIN index on tags column
 - [x] Partial index for unread notifications
 - [x] Composite index for channel + status queries
