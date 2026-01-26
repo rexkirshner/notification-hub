@@ -18,6 +18,7 @@ import {
   listNotificationsSchema,
 } from "@/lib/validators/notification";
 import { sendNtfyPush, getNtfyTopic } from "@/lib/ntfy";
+import { checkRateLimit, getRateLimitHeaders } from "@/lib/rate-limit";
 import { DeliveryStatus, Prisma } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -50,6 +51,35 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       { error: "API key does not have send permission" },
       { status: 403 }
     );
+  }
+
+  // Check rate limit
+  const rateLimitResult = await checkRateLimit(
+    authResult.apiKey.id,
+    authResult.apiKey.rateLimit
+  );
+
+  if (!rateLimitResult.allowed) {
+    const response = NextResponse.json(
+      {
+        error: "Rate limit exceeded",
+        limit: rateLimitResult.limit,
+        resetAt: rateLimitResult.resetAt.toISOString(),
+      },
+      { status: 429 }
+    );
+
+    // Add rate limit headers
+    const headers = getRateLimitHeaders(rateLimitResult);
+    for (const [key, value] of Object.entries(headers)) {
+      response.headers.set(key, value);
+    }
+    response.headers.set(
+      "Retry-After",
+      String(Math.ceil((rateLimitResult.resetAt.getTime() - Date.now()) / 1000))
+    );
+
+    return response;
   }
 
   // Parse and validate request body
@@ -121,6 +151,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (isReplay) {
       const response = NextResponse.json(notification, { status: 200 });
       response.headers.set("X-Idempotent-Replay", "true");
+      // Add rate limit headers (replay doesn't count against limit)
+      const headers = getRateLimitHeaders(rateLimitResult);
+      for (const [key, value] of Object.entries(headers)) {
+        response.headers.set(key, value);
+      }
       return response;
     }
   } else {
@@ -150,7 +185,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   // If skipPush, return immediately
   if (input.skipPush) {
-    return NextResponse.json(notification, { status: 201 });
+    const response = NextResponse.json(notification, { status: 201 });
+    // Add rate limit headers
+    const headers = getRateLimitHeaders(rateLimitResult);
+    for (const [key, value] of Object.entries(headers)) {
+      response.headers.set(key, value);
+    }
+    return response;
   }
 
   // Attempt ntfy push
@@ -187,7 +228,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     console.error(logMessage);
   }
 
-  return NextResponse.json(updatedNotification, { status: 201 });
+  const response = NextResponse.json(updatedNotification, { status: 201 });
+  // Add rate limit headers
+  const headers = getRateLimitHeaders(rateLimitResult);
+  for (const [key, value] of Object.entries(headers)) {
+    response.headers.set(key, value);
+  }
+  return response;
 }
 
 /**
