@@ -17,6 +17,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getEnv } from "@/lib/env";
 import { sendNtfyPush, getNtfyTopic } from "@/lib/ntfy";
+import { incCounter } from "@/lib/metrics";
 import { DeliveryStatus } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -97,6 +98,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       },
     });
     result.gaveUp = gaveUpResult.count;
+    if (gaveUpResult.count > 0) {
+      incCounter("retry_gave_up", gaveUpResult.count);
+    }
 
     // Process retries
     for (const notification of failedNotifications) {
@@ -125,6 +129,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         markdown: notification.markdown,
       });
 
+      incCounter("retry_attempts");
       if (pushResult.success) {
         // Success! Update status
         await db.notification.update({
@@ -137,6 +142,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           },
         });
         result.succeeded++;
+        incCounter("retry_successes");
         console.log(
           `Retry succeeded for notification ${notification.id} (attempt ${notification.retryCount + 1})`
         );
@@ -150,6 +156,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           },
         });
         result.failed++;
+        incCounter("retry_failures");
         console.log(
           `Retry failed for notification ${notification.id} (attempt ${notification.retryCount + 1}): ${pushResult.error}`
         );

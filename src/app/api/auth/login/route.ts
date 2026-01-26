@@ -22,6 +22,7 @@ import {
   getRemainingAttempts,
 } from "@/lib/login-throttle";
 import { db } from "@/lib/db";
+import { incCounter } from "@/lib/metrics";
 import { AuditAction, ActorType } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -93,6 +94,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   if (!isValid) {
     // Record failed attempt
+    incCounter("login_failure");
     recordFailedAttempt(clientIp);
     const remaining = getRemainingAttempts(clientIp);
 
@@ -123,6 +125,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   // Success - create session and clear throttle
+  incCounter("login_success");
   await createSession();
   clearThrottle(clientIp);
 

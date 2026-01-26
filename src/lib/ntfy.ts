@@ -6,6 +6,7 @@
  */
 
 import { getEnv } from "./env";
+import { recordDuration } from "./metrics";
 
 export interface NtfyPayload {
   title: string;
@@ -37,6 +38,7 @@ export async function sendNtfyPush(
   const env = getEnv();
   const url = `${env.NTFY_BASE_URL}/${topic}`;
   const timeoutMs = env.NTFY_TIMEOUT_MS;
+  const startTime = Date.now();
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -72,14 +74,17 @@ export async function sendNtfyPush(
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => "Unknown error");
+      recordDuration("ntfy_latency", Date.now() - startTime);
       return {
         success: false,
         error: `ntfy returned ${response.status}: ${errorText}`,
       };
     }
 
+    recordDuration("ntfy_latency", Date.now() - startTime);
     return { success: true };
   } catch (error) {
+    recordDuration("ntfy_latency", Date.now() - startTime);
     if (error instanceof Error && error.name === "AbortError") {
       return {
         success: false,

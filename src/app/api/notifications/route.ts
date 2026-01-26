@@ -19,6 +19,7 @@ import {
 } from "@/lib/validators/notification";
 import { sendNtfyPush, getNtfyTopic } from "@/lib/ntfy";
 import { checkRateLimit, getRateLimitHeaders } from "@/lib/rate-limit";
+import { incCounter, recordDuration } from "@/lib/metrics";
 import { DeliveryStatus, Prisma } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -33,6 +34,8 @@ type NotificationWithChannel = Prisma.NotificationGetPayload<{
  * Create a new notification.
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  const startTime = Date.now();
+
   // Validate API key
   const authResult = await validateApiKey(
     request.headers.get("Authorization")
@@ -123,6 +126,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   );
 
   if (!rateLimitResult.allowed) {
+    incCounter("rate_limit_exceeded");
+    recordDuration("post_latency", Date.now() - startTime);
     const response = NextResponse.json(
       { error: "Rate limit exceeded" },
       { status: 429 }
@@ -198,6 +203,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   // If skipPush, return immediately
   if (input.skipPush) {
+    incCounter("notifications_created");
+    incCounter("notifications_skipped");
+    recordDuration("post_latency", Date.now() - startTime);
     const response = NextResponse.json(notification, { status: 201 });
     // Add rate limit headers
     const headers = getRateLimitHeaders(rateLimitResult);
@@ -233,14 +241,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     },
   });
 
-  // Log timeout vs other failures separately for monitoring
-  if (!pushResult.success) {
+  // Track metrics and log for monitoring
+  incCounter("notifications_created");
+  if (pushResult.success) {
+    incCounter("notifications_delivered");
+  } else {
+    incCounter("notifications_failed");
+    if (pushResult.isTimeout) {
+      incCounter("notifications_timeout");
+    }
     const logMessage = pushResult.isTimeout
       ? `ntfy push timed out for notification ${notification.id}`
       : `ntfy push failed for notification ${notification.id}: ${pushResult.error}`;
     console.error(logMessage);
   }
 
+  recordDuration("post_latency", Date.now() - startTime);
   const response = NextResponse.json(updatedNotification, { status: 201 });
   // Add rate limit headers
   const headers = getRateLimitHeaders(rateLimitResult);
