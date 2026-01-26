@@ -50,6 +50,13 @@ A centralized notification system where any project can send notifications via H
 2. **Dashboard uses session auth** — httpOnly cookie, not API keys in browser
 3. **CSRF protection required** — all dashboard mutations need CSRF tokens
 
+### Session Policy
+
+- **TTL:** 24 hours
+- **Sliding expiration:** Activity extends session
+- **Cookie flags:** `httpOnly`, `secure`, `sameSite=strict`
+- **Rotation:** New session token on login (prevents fixation)
+
 ### Push Security
 
 **Never send secrets via push.** ntfy topics are "security by obscurity."
@@ -83,9 +90,10 @@ model Notification {
 
   // Categorization
   source          String   // defaults to API key name
-  channel         String   @default("default")
+  channelId       String
+  channel         Channel  @relation(fields: [channelId], references: [id])
   category        String?  // "error", "success", "info", "warning"
-  tags            String[]
+  tags            String[] @default([])
 
   // Priority (1-5, maps to ntfy)
   priority        Int      @default(3)
@@ -109,14 +117,17 @@ model Notification {
   apiKeyId        String
   apiKey          ApiKey   @relation(fields: [apiKeyId], references: [id])
 
+  // Idempotency (back-relation)
+  idempotencyRecord IdempotencyRecord?
+
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
   @@index([createdAt(sort: Desc)])
   @@index([source])
-  @@index([channel])
+  @@index([channelId])
   @@index([deliveryStatus])
-  @@index([channel, createdAt(sort: Desc)])
+  @@index([channelId, createdAt(sort: Desc)])
   @@map("notifications")
 }
 
@@ -149,7 +160,8 @@ model ApiKey {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  notifications Notification[]
+  notifications      Notification[]
+  idempotencyRecords IdempotencyRecord[]
 
   @@index([prefix])
   @@map("api_keys")
@@ -158,16 +170,21 @@ model ApiKey {
 
 ### IdempotencyRecord
 
-Separate table for correct TTL-based idempotency. The unique constraint ensures exactly-once semantics; a cleanup job removes expired records.
+Separate table for correct TTL-based idempotency. The unique constraint ensures exactly-once semantics; a cleanup job removes expired records. Foreign keys ensure referential integrity and cascade deletes.
 
 ```prisma
 model IdempotencyRecord {
   id             String   @id @default(cuid())
-  apiKeyId       String
-  idempotencyKey String
-  notificationId String
-  expiresAt      DateTime
 
+  apiKeyId       String
+  apiKey         ApiKey   @relation(fields: [apiKeyId], references: [id], onDelete: Cascade)
+
+  idempotencyKey String
+
+  notificationId String
+  notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  expiresAt      DateTime
   createdAt      DateTime @default(now())
 
   @@unique([apiKeyId, idempotencyKey])
@@ -191,6 +208,8 @@ model Channel {
   ntfyTopic   String?  // null = use NTFY_DEFAULT_TOPIC
   description String?
 
+  notifications Notification[]
+
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -198,7 +217,7 @@ model Channel {
 }
 ```
 
-Channels route to different ntfy topics so you can mute `dev` on your phone without missing `prod`.
+Channels route to different ntfy topics so you can mute `dev` on your phone without missing `prod`. The API accepts `channel` by name, looks up the Channel record, and stores `channelId`.
 
 ### AuditEvent
 
@@ -211,7 +230,7 @@ model AuditEvent {
   actorIp    String?
   targetType String?     // "api_key", "notification"
   targetId   String?
-  metadata   Json?
+  metadata   Json?       // { userAgent, requestPath, ... }
 
   createdAt  DateTime @default(now())
 
@@ -234,6 +253,12 @@ enum ActorType {
   SYSTEM
 }
 ```
+
+**Recommended metadata fields:**
+- `userAgent` — Browser/client identifier
+- `requestPath` — API endpoint that triggered the event
+- `keyName` — For key create/revoke events
+- `count` — For bulk operations
 
 ---
 
@@ -264,9 +289,9 @@ interface CreateNotificationRequest {
   message: string;            // required, max 10000
 
   source?: string;            // defaults to API key name
-  channel?: string;           // defaults to "default"
+  channel?: string;           // looked up by name, defaults to "default"
   category?: "error" | "success" | "info" | "warning";
-  tags?: string[];            // max 10
+  tags?: string[];            // max 10, defaults to []
 
   priority?: 1 | 2 | 3 | 4 | 5;
   markdown?: boolean;
@@ -278,18 +303,23 @@ interface CreateNotificationRequest {
 }
 ```
 
+**Channel lookup:** The API accepts `channel` by name (e.g., `"prod"`), looks up the corresponding Channel record, and stores `channelId`. Returns 400 if channel doesn't exist.
+
 ### Write-First Delivery Pattern
 
 ```
 1. Validate request
 2. Check idempotency (return existing if duplicate)
-3. Write notification with deliveryStatus = PENDING  ← request succeeds here
-4. If skipPush: set SKIPPED, return
-5. Attempt ntfy push:
+3. Look up channel by name → get channelId + ntfyTopic
+4. Write notification with deliveryStatus = PENDING  ← request succeeds here
+5. If skipPush: set SKIPPED, return
+6. Attempt ntfy push (with 2s timeout):
    - Success: set DELIVERED + deliveredAt
-   - Failure: set FAILED + deliveryError
-6. Return notification
+   - Timeout/Failure: set FAILED + deliveryError
+7. Return notification
 ```
+
+**Critical:** The ntfy fetch must have a hard timeout (2 seconds max). This ensures POST latency stays stable even when ntfy.sh is slow or down. Failed deliveries are picked up by the retry cron.
 
 POST succeeds even if ntfy is down. Failed deliveries can be retried later.
 
@@ -438,9 +468,11 @@ DATABASE_URL="postgresql://..."
 # ntfy.sh
 NTFY_DEFAULT_TOPIC="notification-hub-xxx-default"
 NTFY_BASE_URL="https://ntfy.sh"
+NTFY_TIMEOUT_MS=2000  # Hard timeout for push requests
 
 # Dashboard auth
 ADMIN_PASSWORD_HASH="..."  # bcrypt
+SESSION_TTL_HOURS=24
 
 # Optional
 IDEMPOTENCY_TTL_HOURS=24
@@ -575,8 +607,11 @@ notify() {
 ### After Milestone 1
 - [ ] POST creates notification in database
 - [ ] POST succeeds even if ntfy.sh is down (deliveryStatus = FAILED)
+- [ ] POST completes in <3s even when ntfy.sh is slow (timeout works)
 - [ ] Notification appears in ntfy iOS app when ntfy is up
 - [ ] Different channels route to different ntfy topics
+- [ ] Invalid channel name → 400
+- [ ] Missing tags defaults to empty array (not null)
 - [ ] `skipPush: true` → deliveryStatus = SKIPPED
 - [ ] Invalid API key → 401
 - [ ] Key with `canSend` but not `canRead` → POST works, GET returns 403
