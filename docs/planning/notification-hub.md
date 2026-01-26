@@ -539,18 +539,36 @@ async function streamNotifications(apiKey: string) {
 
 **Vercel streaming constraints:**
 - Uses **Node.js runtime** (not Edge) — Prisma requires Node.js; Edge Runtime doesn't support Prisma's query engine
-- Set `export const maxDuration = 300` on the route to configure stream duration
+- Route config: `export const runtime = "nodejs"` and `export const maxDuration = 300`
 - Stream up to **maxDuration seconds** (we use 300); must start response within **~25 seconds**
 - **On connect:** immediately write `: connected\n\n` and flush (satisfies the 25s requirement)
 - **Heartbeat every 15s** (not 30s — safer margin for proxies/timeouts)
 - Clients must implement **auto-reconnect** with `Last-Event-ID` header
 - Server sends `id:` field with each event for resumption
 
+**SSE response headers:**
+```
+Content-Type: text/event-stream
+Cache-Control: no-cache, no-transform
+Connection: keep-alive
+X-Accel-Buffering: no  // Disable nginx buffering if behind proxy
+```
+Flush after each event write to prevent buffering.
+
 **SSE `id:` field semantics:**
 - Format: `{ISO-timestamp}_{cuid}` (e.g., `2024-01-15T10:30:00.000Z_clxyz123`)
 - Encodes both `createdAt` and `id` for deterministic cursor resume
 - On reconnect with `Last-Event-ID`, server parses timestamp and id, then resumes from that point
 - If malformed, server starts from "now" (same as fresh connect)
+
+**Resume query logic:**
+```sql
+-- Parse Last-Event-ID into (ts, id)
+-- Fetch events created AFTER that point (no duplicates)
+WHERE (created_at > $ts) OR (created_at = $ts AND id > $id)
+ORDER BY created_at ASC, id ASC
+```
+This compound condition ensures deterministic resumption even when multiple events share the same timestamp.
 
 #### GET /api/notifications/unread-count
 
@@ -710,7 +728,7 @@ This is a risk-reduction milestone. If streaming doesn't work as expected, we ne
   - **Add partial index** for unread queries (see schema note)
 - [ ] `GET /api/notifications/stream` (SSE):
   - Server-Sent Events endpoint using **Node.js runtime** (Prisma requires Node.js)
-  - Set `export const maxDuration = 300` on route (explicitly configure stream duration)
+  - Route config: `export const runtime = "nodejs"` + `export const maxDuration = 300`
   - Real-time push of new notifications
   - **On connect:** immediately write `: connected\n\n` (satisfies 25s requirement)
   - **Heartbeat every 15s** (safer margin for proxies)
@@ -776,7 +794,8 @@ This is a risk-reduction milestone. If streaming doesn't work as expected, we ne
 
 #### Rate Limiting
 - [ ] Implement per-key RPM limit (`rateLimit` field)
-- [ ] Storage: Vercel KV for accuracy, or DB-based for low volume
+- [ ] **Storage: Vercel KV (Upstash Redis)** — correct under concurrency, atomic INCR with TTL
+- [ ] DB-based acceptable for personal/low-volume use (simpler, no extra service)
 
 #### Retention
 - [ ] Scheduled cleanup for old notifications (default 30 days)
@@ -796,6 +815,15 @@ This is a risk-reduction milestone. If streaming doesn't work as expected, we ne
   - `send()` method with full typing
   - Idempotency key helper
   - Error handling
+
+#### Observability (minimal)
+- [ ] Log and count FAILED deliveries (ntfy errors vs timeouts)
+- [ ] Log retry attempts and final outcomes
+- [ ] Log failed login attempts (already in AuditEvent, surface in logs)
+- [ ] Track POST latency buckets (< 100ms, < 500ms, < 2s, timeout)
+- [ ] Optional: simple `/api/metrics` endpoint for scraping
+
+Nothing fancy — just enough to debug "why didn't my notification arrive?"
 
 **Done when:**
 - Queries stay fast with real volume
