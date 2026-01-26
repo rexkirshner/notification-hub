@@ -840,11 +840,13 @@ This is a risk-reduction milestone. If streaming doesn't work as expected, we ne
   - Detailed README with usage examples
 
 #### Observability (minimal)
-- [ ] Log and count FAILED deliveries (ntfy errors vs timeouts)
-- [ ] Log retry attempts and final outcomes
-- [ ] Log failed login attempts (already in AuditEvent, surface in logs)
-- [ ] Track POST latency buckets (< 100ms, < 500ms, < 2s, timeout)
-- [ ] Optional: simple `/api/metrics` endpoint for scraping
+- [x] Log and count FAILED deliveries (ntfy errors vs timeouts)
+- [x] Log retry attempts and final outcomes
+- [x] Log failed login attempts (already in AuditEvent, surface in logs)
+- [x] Track POST latency buckets (< 100ms, < 500ms, < 2s, timeout)
+- [x] Simple `/api/metrics` endpoint (JSON and Prometheus formats)
+
+In-memory metrics (reset on cold start). For persistent metrics, use external service.
 
 Nothing fancy — just enough to debug "why didn't my notification arrive?"
 
@@ -1161,4 +1163,4 @@ func markAsRead(id: String) async throws {
 - [x] FAILED notification eventually becomes DELIVERED after retry
 - [x] Retry cron with exponential backoff (every 15 min)
 - [x] TypeScript SDK created (sdk/ folder)
-- [ ] Basic observability metrics (optional)
+- [x] Basic observability metrics (/api/metrics endpoint)
