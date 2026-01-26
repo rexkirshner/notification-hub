@@ -2,23 +2,47 @@
  * Dashboard Home Page
  *
  * Shows notification list with filters and real-time updates.
+ * Filters are stored in URL search params for bookmarkable state.
  */
 
 import { Suspense } from "react";
 import { NotificationList } from "@/components/dashboard/notification-list";
-import { NotificationFilters } from "@/components/dashboard/notification-filters";
+import {
+  NotificationFilters,
+  parseFiltersFromParams,
+} from "@/components/dashboard/notification-filters";
 
-export default function DashboardPage() {
+interface DashboardPageProps {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}
+
+export default async function DashboardPage({
+  searchParams,
+}: DashboardPageProps) {
+  const params = await searchParams;
+
+  // Convert to URLSearchParams for consistent parsing
+  const urlParams = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (typeof value === "string") {
+      urlParams.set(key, value);
+    }
+  }
+
+  const filters = parseFiltersFromParams(urlParams);
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Notifications</h1>
       </div>
 
-      <NotificationFilters />
+      <Suspense fallback={null}>
+        <NotificationFilters />
+      </Suspense>
 
       <Suspense fallback={<NotificationListSkeleton />}>
-        <NotificationList />
+        <NotificationList filters={filters} />
       </Suspense>
     </div>
   );

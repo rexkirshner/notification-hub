@@ -4,11 +4,13 @@
  * Notification List Component
  *
  * Displays paginated list of notifications with real-time updates via SSE.
+ * Accepts filter props from parent for channel, category, priority, and read status.
  */
 
 import { useEffect, useState, useCallback } from "react";
 import { NotificationCard } from "./notification-card";
 import { Button } from "@/components/ui/button";
+import type { NotificationFiltersState } from "./notification-filters";
 
 interface Notification {
   id: string;
@@ -36,47 +38,112 @@ interface PaginationInfo {
   totalPages: number;
 }
 
-export function NotificationList() {
+interface NotificationListProps {
+  filters: NotificationFiltersState;
+}
+
+export function NotificationList({ filters }: NotificationListProps) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [pagination, setPagination] = useState<PaginationInfo | null>(null);
   const [page, setPage] = useState(1);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchNotifications = useCallback(async (pageNum: number) => {
-    setIsLoading(true);
-    setError(null);
+  // Build query string from filters
+  const buildQueryString = useCallback(
+    (pageNum: number) => {
+      const params = new URLSearchParams();
+      params.set("page", String(pageNum));
+      params.set("limit", "20");
+      params.set("sort", "createdAt");
+      params.set("order", "desc");
 
-    try {
-      const response = await fetch(
-        `/api/notifications?page=${pageNum}&limit=20&sort=createdAt&order=desc`
-      );
-
-      if (!response.ok) {
-        throw new Error("Failed to fetch notifications");
+      if (filters.channel) {
+        params.set("channel", filters.channel);
+      }
+      if (filters.category) {
+        params.set("category", filters.category);
+      }
+      if (filters.unreadOnly) {
+        params.set("unreadOnly", "true");
       }
 
-      const data = await response.json();
-      setNotifications(data.data);
-      setPagination(data.pagination);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+      return params.toString();
+    },
+    [filters]
+  );
 
-  // Initial fetch
+  const fetchNotifications = useCallback(
+    async (pageNum: number) => {
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        const queryString = buildQueryString(pageNum);
+        const response = await fetch(`/api/notifications?${queryString}`);
+
+        if (!response.ok) {
+          throw new Error("Failed to fetch notifications");
+        }
+
+        const data = await response.json();
+
+        // Client-side filter by minPriority (API doesn't support this filter)
+        let filtered = data.data;
+        if (filters.minPriority) {
+          filtered = filtered.filter(
+            (n: Notification) => n.priority >= filters.minPriority!
+          );
+        }
+
+        setNotifications(filtered);
+        setPagination(data.pagination);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Unknown error");
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [buildQueryString, filters.minPriority]
+  );
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setPage(1);
+  }, [filters]);
+
+  // Fetch when page or filters change
   useEffect(() => {
     fetchNotifications(page);
   }, [page, fetchNotifications]);
 
   // SSE for real-time updates
   useEffect(() => {
-    const eventSource = new EventSource("/api/notifications/stream");
+    // Build SSE URL with channel filter if set
+    const sseParams = new URLSearchParams();
+    if (filters.channel) {
+      sseParams.set("channel", filters.channel);
+    }
+    if (filters.minPriority) {
+      sseParams.set("minPriority", String(filters.minPriority));
+    }
+    const sseUrl = sseParams.toString()
+      ? `/api/notifications/stream?${sseParams.toString()}`
+      : "/api/notifications/stream";
+
+    const eventSource = new EventSource(sseUrl);
 
     eventSource.addEventListener("notification", (event) => {
       const notification = JSON.parse(event.data) as Notification;
+
+      // Apply client-side filters
+      if (filters.category && notification.category !== filters.category) {
+        return;
+      }
+      if (filters.unreadOnly && notification.readAt !== null) {
+        return;
+      }
+
       // Add new notification to the top if on first page
       if (page === 1) {
         setNotifications((prev) => [notification, ...prev.slice(0, 19)]);
@@ -91,7 +158,7 @@ export function NotificationList() {
     return () => {
       eventSource.close();
     };
-  }, [page]);
+  }, [page, filters]);
 
   const handleMarkRead = async (id: string) => {
     try {
@@ -101,9 +168,15 @@ export function NotificationList() {
 
       if (response.ok) {
         const updated = await response.json();
-        setNotifications((prev) =>
-          prev.map((n) => (n.id === id ? updated : n))
-        );
+
+        if (filters.unreadOnly) {
+          // Remove from list if filtering by unread
+          setNotifications((prev) => prev.filter((n) => n.id !== id));
+        } else {
+          setNotifications((prev) =>
+            prev.map((n) => (n.id === id ? updated : n))
+          );
+        }
       }
     } catch (err) {
       console.error("Failed to mark as read:", err);
@@ -112,10 +185,19 @@ export function NotificationList() {
 
   const handleMarkAllRead = async () => {
     try {
+      const body: Record<string, unknown> = {
+        before: new Date().toISOString(),
+      };
+
+      // If filtering by channel, only mark that channel's notifications
+      if (filters.channel) {
+        body.channel = filters.channel;
+      }
+
       const response = await fetch("/api/notifications/read", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ before: new Date().toISOString() }),
+        body: JSON.stringify(body),
       });
 
       if (response.ok) {
@@ -136,10 +218,15 @@ export function NotificationList() {
     );
   }
 
+  const unreadCount = notifications.filter((n) => !n.readAt).length;
+
   return (
     <div className="space-y-4">
-      {notifications.length > 0 && (
-        <div className="flex justify-end">
+      {notifications.length > 0 && unreadCount > 0 && (
+        <div className="flex justify-between items-center">
+          <span className="text-sm text-muted-foreground">
+            {unreadCount} unread on this page
+          </span>
           <Button variant="outline" size="sm" onClick={handleMarkAllRead}>
             Mark all as read
           </Button>
@@ -152,7 +239,9 @@ export function NotificationList() {
         </div>
       ) : notifications.length === 0 ? (
         <div className="text-center py-8 text-muted-foreground">
-          No notifications yet
+          {filters.channel || filters.category || filters.unreadOnly
+            ? "No notifications match the current filters"
+            : "No notifications yet"}
         </div>
       ) : (
         <>
@@ -183,7 +272,9 @@ export function NotificationList() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setPage((p) => Math.min(pagination.totalPages, p + 1))}
+                onClick={() =>
+                  setPage((p) => Math.min(pagination.totalPages, p + 1))
+                }
                 disabled={page === pagination.totalPages}
               >
                 Next
