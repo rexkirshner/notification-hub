@@ -11,6 +11,12 @@ import { useMemo } from "react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+
+// Configure marked globally (not inside components)
+marked.setOptions({
+  breaks: true,
+  gfm: true,
+});
 import { Button } from "@/components/ui/button";
 
 interface Notification {
@@ -62,12 +68,6 @@ export function NotificationCard({ notification, onMarkRead }: NotificationCardP
     if (!notification.markdown) {
       return notification.message;
     }
-
-    // Configure marked for safety
-    marked.setOptions({
-      breaks: true,
-      gfm: true,
-    });
 
     const rawHtml = marked.parse(notification.message) as string;
 
