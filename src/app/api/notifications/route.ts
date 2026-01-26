@@ -5,10 +5,12 @@
  * GET /api/notifications - List notifications (requires canRead)
  *
  * Implements write-first delivery pattern: notification is saved before push.
+ * Supports idempotency via idempotencyKey parameter.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { getEnv } from "@/lib/env";
 import { validateApiKey, hasPermission } from "@/lib/auth";
 import {
   createNotificationSchema,
@@ -18,6 +20,11 @@ import { sendNtfyPush, getNtfyTopic } from "@/lib/ntfy";
 import { DeliveryStatus, Prisma } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
+
+// Type for notification with channel included
+type NotificationWithChannel = Prisma.NotificationGetPayload<{
+  include: { channel: true };
+}>;
 
 /**
  * POST /api/notifications
@@ -80,26 +87,65 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // Create notification with PENDING status (write-first pattern)
-  const notification = await db.notification.create({
-    data: {
-      title: input.title,
-      message: input.message,
-      markdown: input.markdown,
-      source: input.source || authResult.apiKey.name,
-      channelId: channel.id,
-      category: input.category,
-      tags: input.tags,
-      priority: input.priority,
-      clickUrl: input.clickUrl,
-      metadata: input.metadata as Prisma.InputJsonValue,
-      deliveryStatus: input.skipPush ? DeliveryStatus.SKIPPED : DeliveryStatus.PENDING,
-      apiKeyId: authResult.apiKey.id,
-    },
-    include: {
-      channel: true,
-    },
-  });
+  let notification: NotificationWithChannel;
+  let isReplay = false;
+
+  // Handle idempotency if key is provided
+  if (input.idempotencyKey) {
+    const result = await createNotificationWithIdempotency(
+      authResult.apiKey.id,
+      input.idempotencyKey,
+      {
+        title: input.title,
+        message: input.message,
+        markdown: input.markdown,
+        source: input.source || authResult.apiKey.name,
+        channel: { connect: { id: channel.id } },
+        category: input.category,
+        tags: input.tags,
+        priority: input.priority,
+        clickUrl: input.clickUrl,
+        metadata: input.metadata as Prisma.InputJsonValue,
+        deliveryStatus: input.skipPush
+          ? DeliveryStatus.SKIPPED
+          : DeliveryStatus.PENDING,
+        apiKey: { connect: { id: authResult.apiKey.id } },
+      }
+    );
+
+    notification = result.notification;
+    isReplay = result.isReplay;
+
+    // If this is a replay, return the existing notification immediately
+    if (isReplay) {
+      const response = NextResponse.json(notification, { status: 200 });
+      response.headers.set("X-Idempotent-Replay", "true");
+      return response;
+    }
+  } else {
+    // No idempotency key - create notification directly
+    notification = await db.notification.create({
+      data: {
+        title: input.title,
+        message: input.message,
+        markdown: input.markdown,
+        source: input.source || authResult.apiKey.name,
+        channelId: channel.id,
+        category: input.category,
+        tags: input.tags,
+        priority: input.priority,
+        clickUrl: input.clickUrl,
+        metadata: input.metadata as Prisma.InputJsonValue,
+        deliveryStatus: input.skipPush
+          ? DeliveryStatus.SKIPPED
+          : DeliveryStatus.PENDING,
+        apiKeyId: authResult.apiKey.id,
+      },
+      include: {
+        channel: true,
+      },
+    });
+  }
 
   // If skipPush, return immediately
   if (input.skipPush) {
@@ -141,6 +187,103 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   return NextResponse.json(updatedNotification, { status: 201 });
+}
+
+/**
+ * Create a notification with idempotency protection.
+ * Uses a transaction to ensure exactly-once semantics.
+ */
+async function createNotificationWithIdempotency(
+  apiKeyId: string,
+  idempotencyKey: string,
+  data: Prisma.NotificationCreateInput
+): Promise<{ notification: NotificationWithChannel; isReplay: boolean }> {
+  const env = getEnv();
+  const ttlHours = env.IDEMPOTENCY_TTL_HOURS;
+  const expiresAt = new Date(Date.now() + ttlHours * 60 * 60 * 1000);
+
+  try {
+    return await db.$transaction(async (tx) => {
+      // Check for existing record
+      const existing = await tx.idempotencyRecord.findUnique({
+        where: {
+          apiKeyId_idempotencyKey: {
+            apiKeyId,
+            idempotencyKey,
+          },
+        },
+        include: {
+          notification: {
+            include: {
+              channel: true,
+            },
+          },
+        },
+      });
+
+      if (existing) {
+        // Check if expired
+        if (existing.expiresAt >= new Date()) {
+          // Return existing notification
+          return { notification: existing.notification, isReplay: true };
+        }
+
+        // Delete expired record
+        await tx.idempotencyRecord.delete({
+          where: { id: existing.id },
+        });
+      }
+
+      // Create new notification
+      const notification = await tx.notification.create({
+        data,
+        include: {
+          channel: true,
+        },
+      });
+
+      // Create idempotency record
+      await tx.idempotencyRecord.create({
+        data: {
+          apiKeyId,
+          idempotencyKey,
+          notificationId: notification.id,
+          expiresAt,
+        },
+      });
+
+      return { notification, isReplay: false };
+    });
+  } catch (error) {
+    // Handle unique constraint violation (race condition)
+    if (
+      error instanceof Error &&
+      error.message.includes("Unique constraint")
+    ) {
+      // Another request won the race - fetch and return existing
+      const existing = await db.idempotencyRecord.findUnique({
+        where: {
+          apiKeyId_idempotencyKey: {
+            apiKeyId,
+            idempotencyKey,
+          },
+        },
+        include: {
+          notification: {
+            include: {
+              channel: true,
+            },
+          },
+        },
+      });
+
+      if (existing) {
+        return { notification: existing.notification, isReplay: true };
+      }
+    }
+
+    throw error;
+  }
 }
 
 /**

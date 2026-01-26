@@ -668,32 +668,32 @@ This is a risk-reduction milestone. If streaming doesn't work as expected, we ne
 
 ---
 
-### Milestone 1: Core Ingestion API
+### Milestone 1: Core Ingestion API (In Progress)
 
 **Goal:** `curl POST` reliably creates notifications with proper auth and write-first delivery.
 
-- [ ] Implement full Prisma schema (Notification, ApiKey, Channel, AuditEvent, IdempotencyRecord)
-- [ ] Seed default channels (prod, dev, personal, default)
-- [ ] Auth middleware:
+- [x] Implement full Prisma schema (Notification, ApiKey, Channel, AuditEvent, IdempotencyRecord)
+- [x] Seed default channels (prod, dev, personal, default)
+- [x] Auth middleware:
   - Parse `Authorization: Bearer ...`
   - Validate key hash, `isActive`, expiration
   - Enforce permissions per endpoint
-- [ ] `POST /api/notifications`:
+- [x] `POST /api/notifications`:
   - Zod validation
   - **clickUrl validation** (only http/https schemes)
-  - Idempotency check (see Milestone 1.1)
+  - Idempotency check (see Milestone 1.1) ← still pending
   - Write-first delivery pattern
   - Channel → ntfy topic routing
-- [ ] `GET /api/notifications`:
+- [x] `GET /api/notifications`:
   - Pagination (page, limit)
   - Filters: source, channel, category, tags, deliveryStatus, unreadOnly
   - Enforce `canRead` or session
-- [ ] `GET /api/health`
+- [x] `GET /api/health`
 
 **Done when:**
-- Sender key (`canSend=true, canRead=false`) can POST but gets 403 on GET
-- Notification appears in ntfy iOS app
-- ntfy down → POST still succeeds, notification ends as FAILED with deliveryError
+- [x] Sender key (`canSend=true, canRead=false`) can POST but gets 403 on GET
+- [x] Notification appears in ntfy iOS app
+- [ ] ntfy down → POST still succeeds, notification ends as FAILED with deliveryError (needs testing)
 
 ---
 
