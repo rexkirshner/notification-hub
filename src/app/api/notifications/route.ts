@@ -53,36 +53,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // Check rate limit
-  const rateLimitResult = await checkRateLimit(
-    authResult.apiKey.id,
-    authResult.apiKey.rateLimit
-  );
-
-  if (!rateLimitResult.allowed) {
-    const response = NextResponse.json(
-      {
-        error: "Rate limit exceeded",
-        limit: rateLimitResult.limit,
-        resetAt: rateLimitResult.resetAt.toISOString(),
-      },
-      { status: 429 }
-    );
-
-    // Add rate limit headers
-    const headers = getRateLimitHeaders(rateLimitResult);
-    for (const [key, value] of Object.entries(headers)) {
-      response.headers.set(key, value);
-    }
-    response.headers.set(
-      "Retry-After",
-      String(Math.ceil((rateLimitResult.resetAt.getTime() - Date.now()) / 1000))
-    );
-
-    return response;
-  }
-
-  // Parse and validate request body
+  // Parse and validate request body first (needed to check idempotency)
   let body: unknown;
   try {
     body = await request.json();
@@ -121,6 +92,48 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   let notification: NotificationWithChannel;
   let isReplay = false;
 
+  // For idempotent requests, check if this is a replay before rate limiting
+  // (replays don't count against the rate limit since no new notification is created)
+  if (input.idempotencyKey) {
+    const existingReplay = await checkIdempotencyReplay(
+      authResult.apiKey.id,
+      input.idempotencyKey
+    );
+
+    if (existingReplay) {
+      // This is a replay - return existing notification without rate limit check
+      const rateLimitResult = await checkRateLimit(
+        authResult.apiKey.id,
+        authResult.apiKey.rateLimit
+      );
+      const response = NextResponse.json(existingReplay, { status: 200 });
+      response.headers.set("X-Idempotent-Replay", "true");
+      const headers = getRateLimitHeaders(rateLimitResult);
+      for (const [key, value] of Object.entries(headers)) {
+        response.headers.set(key, value);
+      }
+      return response;
+    }
+  }
+
+  // Check rate limit for new notifications
+  const rateLimitResult = await checkRateLimit(
+    authResult.apiKey.id,
+    authResult.apiKey.rateLimit
+  );
+
+  if (!rateLimitResult.allowed) {
+    const response = NextResponse.json(
+      { error: "Rate limit exceeded" },
+      { status: 429 }
+    );
+    const headers = getRateLimitHeaders(rateLimitResult);
+    for (const [key, value] of Object.entries(headers)) {
+      response.headers.set(key, value);
+    }
+    return response;
+  }
+
   // Handle idempotency if key is provided
   if (input.idempotencyKey) {
     const result = await createNotificationWithIdempotency(
@@ -147,11 +160,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     notification = result.notification;
     isReplay = result.isReplay;
 
-    // If this is a replay, return the existing notification immediately
+    // Handle race condition: another request created this notification
+    // between our check and creation (rare but possible)
     if (isReplay) {
       const response = NextResponse.json(notification, { status: 200 });
       response.headers.set("X-Idempotent-Replay", "true");
-      // Add rate limit headers (replay doesn't count against limit)
       const headers = getRateLimitHeaders(rateLimitResult);
       for (const [key, value] of Object.entries(headers)) {
         response.headers.set(key, value);
@@ -235,6 +248,37 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     response.headers.set(key, value);
   }
   return response;
+}
+
+/**
+ * Check if an idempotency record exists and is not expired (read-only).
+ * Returns the existing notification if found, null otherwise.
+ */
+async function checkIdempotencyReplay(
+  apiKeyId: string,
+  idempotencyKey: string
+): Promise<NotificationWithChannel | null> {
+  const existing = await db.idempotencyRecord.findUnique({
+    where: {
+      apiKeyId_idempotencyKey: {
+        apiKeyId,
+        idempotencyKey,
+      },
+    },
+    include: {
+      notification: {
+        include: {
+          channel: true,
+        },
+      },
+    },
+  });
+
+  if (existing && existing.expiresAt >= new Date()) {
+    return existing.notification;
+  }
+
+  return null;
 }
 
 /**
