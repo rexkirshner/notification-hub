@@ -19,13 +19,13 @@ const STREAM_DURATION_MS = 60_000;
 const HEARTBEAT_INTERVAL_MS = 15_000;
 const EVENT_INTERVAL_MS = 5_000;
 
-export async function GET(): Promise<Response> {
+export async function GET(request: Request): Promise<Response> {
   const encoder = new TextEncoder();
   const startTime = Date.now();
   let eventCounter = 0;
 
   const stream = new ReadableStream({
-    async start(controller) {
+    start(controller) {
       // Immediately send connection acknowledgment
       // This must happen within ~25s on Vercel
       controller.enqueue(encoder.encode(": connected\n\n"));
@@ -75,12 +75,12 @@ export async function GET(): Promise<Response> {
         controller.close();
       }, STREAM_DURATION_MS);
 
-      // Handle client disconnect
-      return () => {
+      // Clean up on client disconnect
+      request.signal.addEventListener("abort", () => {
         clearInterval(heartbeatInterval);
         clearInterval(eventInterval);
         clearTimeout(closeTimeout);
-      };
+      });
     },
   });
 
