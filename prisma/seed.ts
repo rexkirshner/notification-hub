@@ -6,18 +6,31 @@
  */
 
 import "dotenv/config";
-import { Pool } from "pg";
+import { Pool, type PoolConfig } from "pg";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, type Prisma } from "@prisma/client";
+
+// Validate DATABASE_URL is set
+const connectionString = process.env.DATABASE_URL;
+if (!connectionString) {
+  console.error("Error: DATABASE_URL environment variable is not set");
+  process.exit(1);
+}
 
 // Create connection with adapter (required for Prisma 7+)
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-});
+const poolConfig: PoolConfig = {
+  connectionString,
+  max: 5,
+  idleTimeoutMillis: 30000,
+};
+const pool = new Pool(poolConfig);
 const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 
-const defaultChannels = [
+// Type-safe channel definitions
+type ChannelCreateInput = Prisma.ChannelCreateInput;
+
+const defaultChannels: ChannelCreateInput[] = [
   {
     name: "default",
     description: "Default notification channel",
@@ -26,7 +39,7 @@ const defaultChannels = [
   {
     name: "prod",
     description: "Production environment notifications",
-    ntfyTopic: null, // Configure specific topic in env or update after deploy
+    ntfyTopic: null,
   },
   {
     name: "dev",
@@ -58,8 +71,8 @@ async function main() {
 }
 
 main()
-  .catch((e) => {
-    console.error("Seed error:", e);
+  .catch((error: unknown) => {
+    console.error("Seed error:", error);
     process.exit(1);
   })
   .finally(async () => {
