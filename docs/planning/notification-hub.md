@@ -657,7 +657,7 @@ This is a risk-reduction milestone. If streaming doesn't work as expected, we ne
 - [x] Deploy to Vercel production (preview has auth protection)
 - [x] Test with curl: `curl -N https://notification-hub-two.vercel.app/api/test-stream`
 - [x] Verify: immediate `: connected`, heartbeats arrive, events arrive
-- [ ] Delete test endpoint after full Consumer API is implemented
+- [x] Delete test endpoint after full Consumer API is implemented
 
 **Done when:**
 - [x] SSE streams work reliably on Vercel for 60+ seconds
