@@ -7,6 +7,7 @@
 
 import { createHash, randomBytes } from "crypto";
 import { db } from "./db";
+import { incCounter } from "./metrics";
 import type { ApiKey } from "@prisma/client";
 
 /**
@@ -50,17 +51,20 @@ export async function validateApiKey(
   authHeader: string | null
 ): Promise<AuthResult> {
   if (!authHeader) {
+    incCounter("api_key_auth_failure");
     return { success: false, error: "Missing Authorization header" };
   }
 
   // Parse Bearer token
   const match = authHeader.match(/^Bearer\s+(.+)$/i);
   if (!match) {
+    incCounter("api_key_auth_failure");
     return { success: false, error: "Invalid Authorization header format" };
   }
 
   const key = match[1];
   if (!key.startsWith("nhk_")) {
+    incCounter("api_key_auth_failure");
     return { success: false, error: "Invalid API key format" };
   }
 
@@ -72,16 +76,19 @@ export async function validateApiKey(
   });
 
   if (!apiKey) {
+    incCounter("api_key_auth_failure");
     return { success: false, error: "Invalid API key" };
   }
 
   // Check if key is active
   if (!apiKey.isActive) {
+    incCounter("api_key_auth_failure");
     return { success: false, error: "API key has been revoked" };
   }
 
   // Check expiration
   if (apiKey.expiresAt && apiKey.expiresAt < new Date()) {
+    incCounter("api_key_auth_failure");
     return { success: false, error: "API key has expired" };
   }
 
@@ -95,6 +102,7 @@ export async function validateApiKey(
       console.error("Failed to update lastUsedAt:", err);
     });
 
+  incCounter("api_key_auth_success");
   return { success: true, apiKey };
 }
 
