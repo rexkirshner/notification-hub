@@ -200,11 +200,27 @@ model IdempotencyRecord {
 }
 ```
 
-**Idempotency flow:**
-1. POST with `idempotencyKey` → try INSERT into IdempotencyRecord
-2. If unique constraint violation → fetch existing record → return linked notification
-3. If success → create notification, link it, return
-4. Cleanup job deletes records where `expiresAt < now()`
+**Idempotency flow (transaction-based):**
+
+```
+1. POST with `idempotencyKey`:
+   a. First, check if IdempotencyRecord exists for (apiKeyId, idempotencyKey)
+   b. If exists AND not expired: return linked notification (200 OK, no side effects)
+   c. If not exists or expired:
+      BEGIN TRANSACTION
+        - Create Notification
+        - Create IdempotencyRecord linking to new notification
+        - If unique constraint violation → ROLLBACK
+      COMMIT
+
+2. On constraint violation (race condition):
+   - Another request created the record between check and insert
+   - Fetch the existing record → return its notification
+
+3. Cleanup job deletes records where `expiresAt < now()`
+```
+
+This ensures exactly-once semantics: no orphan notifications, no duplicates even under concurrent requests.
 
 ### Channel
 
@@ -399,17 +415,37 @@ curl -H "Authorization: Bearer nhk_xxx" \
 
 Server-Sent Events endpoint for real-time notifications. Clients receive new notifications as they arrive without polling.
 
-```typescript
-// Client usage
-const eventSource = new EventSource(
-  'https://your-hub.vercel.app/api/notifications/stream',
-  { headers: { 'Authorization': 'Bearer nhk_xxx' } }
-);
+**Authentication:**
+- **Dashboard (browser, same-origin):** Uses session cookie — standard `EventSource` works
+- **External clients (macOS app, CLI):** Must use `fetch` + `ReadableStream` since `EventSource` doesn't support custom headers
 
-eventSource.onmessage = (event) => {
+```typescript
+// Dashboard (same-origin, session cookie)
+const eventSource = new EventSource('/api/notifications/stream');
+eventSource.addEventListener('notification', (event) => {
   const notification = JSON.parse(event.data);
-  console.log('New notification:', notification);
-};
+  showNotification(notification);
+});
+
+// External client (with auth header) — use fetch, not EventSource
+async function streamNotifications(apiKey: string) {
+  const response = await fetch('https://your-hub.vercel.app/api/notifications/stream', {
+    headers: { 'Authorization': `Bearer ${apiKey}` }
+  });
+
+  const reader = response.body!.getReader();
+  const decoder = new TextDecoder();
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    const text = decoder.decode(value);
+    // Parse SSE format: "event: notification\ndata: {...}\n\n"
+    const lines = text.split('\n');
+    // ... handle events
+  }
+}
 ```
 
 **Query parameters:**
@@ -420,6 +456,12 @@ eventSource.onmessage = (event) => {
 - `notification` — new notification created
 - `read` — notification marked as read (for syncing across clients)
 - `heartbeat` — keepalive every 30s
+
+**Vercel streaming constraints:**
+- Uses **Edge Runtime** for streaming support
+- Max connection duration: ~30 seconds (Vercel limit)
+- Clients must implement **auto-reconnect** with `Last-Event-ID` header
+- Server sends `id:` field with each event for resumption
 
 #### GET /api/notifications/unread-count
 
@@ -521,13 +563,15 @@ curl -X PATCH "https://your-hub.vercel.app/api/notifications/read" \
 
 - [ ] Create IdempotencyRecord table with unique constraint
 - [ ] On POST with `idempotencyKey`:
-  1. Try INSERT into IdempotencyRecord (with `expiresAt = now + 24h`)
-  2. If unique violation: fetch existing → return linked notification (200 OK)
-  3. If success: create notification, return
-- [ ] Add cleanup endpoint or Vercel cron to delete expired records
+  1. Check if record exists (fast path: return existing notification)
+  2. If not: BEGIN TRANSACTION → create notification → create idempotency record → COMMIT
+  3. On unique constraint violation (race): rollback, fetch existing, return
+- [ ] Add Vercel cron to delete expired records
+  - Cron handler must be **idempotent** (safe to rerun if first invocation fails)
 
 **Done when:**
 - Duplicate POST with same `idempotencyKey` returns original notification (same `id`)
+- Concurrent duplicate POSTs don't create orphan notifications
 - After cleanup runs, same key can create new notification
 
 ---
@@ -544,10 +588,13 @@ curl -X PATCH "https://your-hub.vercel.app/api/notifications/read" \
   - Lightweight count query
   - Optional `channel` filter
 - [ ] `GET /api/notifications/stream` (SSE):
-  - Server-Sent Events endpoint
+  - Server-Sent Events endpoint using **Edge Runtime**
   - Real-time push of new notifications
   - Heartbeat every 30s
   - Optional `channel` and `minPriority` filters
+  - **Vercel constraint:** ~30s max connection duration
+  - Include `id:` field in events for client reconnect with `Last-Event-ID`
+  - Auth: session cookie for dashboard, API key header for external clients
 - [ ] `PATCH /api/notifications/read` (bulk):
   - Mark by IDs array
   - Mark by `before` timestamp
@@ -610,6 +657,8 @@ curl -X PATCH "https://your-hub.vercel.app/api/notifications/read" \
 #### Retention
 - [ ] Scheduled cleanup for old notifications (default 30 days)
 - [ ] Scheduled cleanup for expired IdempotencyRecords
+
+**Vercel Cron note:** Vercel won't auto-retry failed cron invocations. All cron handlers must be **idempotent** — safe to rerun if a previous run partially failed.
 
 #### Retry Delivery
 - [ ] Cron job retries FAILED notifications:
@@ -789,20 +838,51 @@ curl -H "Authorization: Bearer $CONSUMER_KEY" \
 
 ### Real-time streaming (SSE)
 
-```typescript
-// TypeScript/JavaScript client
-const eventSource = new EventSource(
-  'https://your-hub.vercel.app/api/notifications/stream',
-  { headers: { 'Authorization': `Bearer ${CONSUMER_KEY}` } }
-);
+**Note:** Standard `EventSource` doesn't support custom headers. Use `fetch` + `ReadableStream` for external clients with API key auth.
 
+```typescript
+// External client with API key (macOS app, CLI)
+async function streamNotifications(apiKey: string, lastEventId?: string) {
+  const headers: Record<string, string> = {
+    'Authorization': `Bearer ${apiKey}`,
+  };
+  if (lastEventId) {
+    headers['Last-Event-ID'] = lastEventId;  // Resume from last event
+  }
+
+  const response = await fetch('https://your-hub.vercel.app/api/notifications/stream', {
+    headers,
+  });
+
+  const reader = response.body!.getReader();
+  const decoder = new TextDecoder();
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    const chunk = decoder.decode(value);
+    // Parse SSE: "id: abc123\nevent: notification\ndata: {...}\n\n"
+    parseSSE(chunk, (event, data, id) => {
+      if (event === 'notification') {
+        const notification = JSON.parse(data);
+        showDesktopNotification(notification.title, notification.message);
+        lastEventId = id;  // Track for reconnect
+      }
+    });
+  }
+
+  // Connection closed (Vercel ~30s limit) — reconnect
+  setTimeout(() => streamNotifications(apiKey, lastEventId), 1000);
+}
+```
+
+```typescript
+// Dashboard (same-origin, session cookie) — standard EventSource works
+const eventSource = new EventSource('/api/notifications/stream');
 eventSource.addEventListener('notification', (event) => {
   const notification = JSON.parse(event.data);
-  showDesktopNotification(notification.title, notification.message);
-});
-
-eventSource.addEventListener('heartbeat', () => {
-  console.log('Connection alive');
+  showNotification(notification);
 });
 ```
 
@@ -853,13 +933,17 @@ func markAsRead(id: String) async throws {
 
 ### After Milestone 1.1
 - [ ] Duplicate `idempotencyKey` returns same notification ID
+- [ ] Concurrent duplicate POSTs don't create orphan notifications (transaction works)
 - [ ] After record expires and cleanup runs, same key creates new notification
+- [ ] Cleanup cron is idempotent (safe to rerun)
 
 ### After Milestone 1.2
 - [ ] `GET /api/notifications?since=<timestamp>` returns only newer notifications
 - [ ] `GET /api/notifications/unread-count` returns correct count
 - [ ] SSE stream (`/api/notifications/stream`) delivers new notifications in real-time
+- [ ] SSE includes `id:` field for reconnect resumption
 - [ ] SSE heartbeat arrives every 30s
+- [ ] SSE reconnect with `Last-Event-ID` resumes correctly
 - [ ] Bulk mark-read by IDs works
 - [ ] Bulk mark-read by `before` timestamp works
 - [ ] Consumer key (`canRead=true, canSend=false`) can GET but not POST
