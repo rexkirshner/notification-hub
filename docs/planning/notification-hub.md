@@ -757,7 +757,7 @@ This is a risk-reduction milestone. If streaming doesn't work as expected, we ne
 
 ---
 
-### Milestone 2: Web Dashboard (In Progress)
+### Milestone 2: Web Dashboard ✅
 
 **Goal:** Usable UI with strong security boundaries.
 
@@ -772,9 +772,12 @@ This is a risk-reduction milestone. If streaming doesn't work as expected, we ne
   - Pagination
   - Mark read / mark all read
   - Real-time updates via SSE
-- [ ] Notification filters:
-  - Channel tabs (TODO)
-  - Filters: source, category, tags, status, unreadOnly (TODO)
+- [x] Notification filters:
+  - Channel dropdown (all, default, prod, dev, personal)
+  - Category dropdown (all, error, success, info, warning)
+  - Priority dropdown (min priority filter)
+  - Unread only toggle
+  - Filters stored in URL params (bookmarkable)
 - [x] Markdown rendering:
   - Sanitize with DOMPurify
   - Only safe HTML tags allowed
@@ -1130,7 +1133,7 @@ func markAsRead(id: String) async throws {
 - [x] Key create shows plaintext once, then only prefix
 - [x] Key revoke works and is audited
 - [ ] CSRF tokens protect dashboard mutations (low priority for single-user app)
-- [ ] Notification filters (channel, category, etc.)
+- [x] Notification filters (channel, category, priority, unread only)
 
 ### After Milestone 3
 - [ ] Queries fast with 10k+ notifications
