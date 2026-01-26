@@ -200,7 +200,7 @@ model ApiKey {
   id          String   @id @default(cuid())
   name        String
   keyHash     String   @unique // SHA-256
-  prefix      String   // "nhk_abc1..." for display
+  prefix      String   @unique // "nhk_abc1..." for display, unique avoids UI confusion
 
   canSend     Boolean  @default(true)
   canRead     Boolean  @default(false)
@@ -252,7 +252,7 @@ model IdempotencyRecord {
 ```
 1. POST with `idempotencyKey`:
    a. Check if IdempotencyRecord exists for (apiKeyId, idempotencyKey)
-   b. If exists AND not expired: return linked notification (200 OK, no side effects)
+   b. If exists AND not expired: return linked notification (200 OK + X-Idempotent-Replay: true header)
    c. If exists AND expired:
       BEGIN TRANSACTION
         - Delete expired IdempotencyRecord
@@ -274,6 +274,10 @@ model IdempotencyRecord {
 ```
 
 **Key insight:** Deleting expired records inside the transaction makes correctness independent of cron timing. The cron is for cleanup, not correctness.
+
+**Response semantics:**
+- **201 Created** — first create (new notification)
+- **200 OK + `X-Idempotent-Replay: true`** — replay (existing notification returned)
 
 ### Channel
 
@@ -729,7 +733,8 @@ This is a risk-reduction milestone. If streaming doesn't work as expected, we ne
 - [ ] `GET /api/notifications/stream` (SSE):
   - Server-Sent Events endpoint using **Node.js runtime** (Prisma requires Node.js)
   - Route config: `export const runtime = "nodejs"` + `export const maxDuration = 300`
-  - Real-time push of new notifications
+  - **New notification mechanism (MVP):** poll DB every 500–1000ms inside SSE loop using cursor/resume query; emit any new rows
+  - **Upgrade path:** Postgres LISTEN/NOTIFY or Redis pubsub to avoid polling (not needed for personal use)
   - **On connect:** immediately write `: connected\n\n` (satisfies 25s requirement)
   - **Heartbeat every 15s** (safer margin for proxies)
   - Optional `channel` and `minPriority` filters
