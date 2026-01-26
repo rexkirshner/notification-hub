@@ -29,11 +29,11 @@ A centralized notification system where any project can send notifications via H
 
 | Component | Technology |
 |-----------|------------|
-| Framework | Next.js 15 (App Router) |
-| Database | Vercel Postgres |
-| ORM | Prisma |
+| Framework | Next.js 16 (App Router) |
+| Database | Vercel Postgres (prod), Docker Postgres (local) |
+| ORM | Prisma 7 with pg adapter |
 | Validation | Zod |
-| UI | Tailwind + shadcn/ui |
+| UI | Tailwind CSS 4 + shadcn/ui |
 | iOS Push | ntfy.sh |
 
 ---
@@ -624,20 +624,21 @@ curl -X PATCH "https://your-hub.vercel.app/api/notifications/read" \
 
 ## Milestones
 
-### Milestone 0: Repo + Deployment Skeleton
+### Milestone 0: Repo + Deployment Skeleton ✅
 
 **Goal:** Running Next.js app on Vercel with database connected.
 
-- [ ] Create Next.js 15 project with App Router
-- [ ] Add Tailwind + shadcn/ui
-- [ ] Provision Vercel Postgres
-- [ ] Add Prisma with initial schema
-- [ ] Add `.env.example` and env validation (t3-env or similar)
-- [ ] Deploy to Vercel
+- [x] Create Next.js 16 project with App Router
+- [x] Add Tailwind CSS 4 + shadcn/ui
+- [x] Provision Vercel Postgres (production) + Docker Postgres (local development)
+- [x] Add Prisma 7 with full schema (Notification, ApiKey, Channel, AuditEvent, IdempotencyRecord)
+- [x] Add `.env.example` and env validation (Zod-based)
+- [x] Deploy to Vercel
+- [x] Seed default channels (default, prod, dev, personal)
 
 **Done when:**
-- `/api/health` returns 200
-- Prisma can migrate and connect in Vercel preview/prod
+- [x] `/api/health` returns 200
+- [x] Prisma can migrate and connect in Vercel preview/prod
 
 ---
 
@@ -1075,9 +1076,9 @@ func markAsRead(id: String) async throws {
 
 ## Verification Checklist
 
-### After Milestone 0
-- [ ] `/api/health` returns 200 on Vercel
-- [ ] `npx prisma migrate deploy` succeeds
+### After Milestone 0 ✅
+- [x] `/api/health` returns 200 on Vercel
+- [x] `npx prisma db push` succeeds (using push for development; migrations for production)
 
 ### After Milestone 0.5
 - [ ] Test stream endpoint works on Vercel preview
