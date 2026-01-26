@@ -1,0 +1,25 @@
+{
+  "name": "@notification-hub/sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for Notification Hub",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup index.ts --format cjs,esm --dts",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "notification",
+    "push",
+    "ntfy"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "tsup": "^8.0.0",
+    "typescript": "^5.0.0"
+  }
+}
