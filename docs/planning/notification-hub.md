@@ -803,13 +803,15 @@ This is a risk-reduction milestone. If streaming doesn't work as expected, we ne
 
 #### Performance
 - [ ] Verify query plans with 10k+ notifications
-- [ ] Add GIN index for tags: `CREATE INDEX ... USING GIN(tags)`
+- [x] Add GIN index for tags: `CREATE INDEX ... USING GIN(tags)`
+- [x] Add partial index for unread notifications
+- [x] Add composite index for channel + status queries
 - [ ] Add full-text search index if needed
 
 #### Rate Limiting
-- [ ] Implement per-key RPM limit (`rateLimit` field)
-- [ ] **Storage: Vercel KV (Upstash Redis)** — correct under concurrency, atomic INCR with TTL
-- [ ] DB-based acceptable for personal/low-volume use (simpler, no extra service)
+- [x] Implement per-key RPM limit (`rateLimit` field)
+- [x] DB-based implementation (simpler, acceptable for personal/low-volume use)
+- [ ] Optional upgrade to Vercel KV (Upstash Redis) for high-volume production
 
 #### Retention
 - [x] Scheduled cleanup for old notifications (default 30 days via RETENTION_DAYS)
@@ -1142,8 +1144,10 @@ func markAsRead(id: String) async throws {
 
 ### After Milestone 3 (In Progress)
 - [ ] Queries fast with 10k+ notifications
-- [ ] GIN index on tags column
-- [ ] Rate limit blocks when exceeded
+- [x] GIN index on tags column
+- [x] Partial index for unread notifications
+- [x] Composite index for channel + status queries
+- [x] Rate limit blocks when exceeded (returns 429 with proper headers)
 - [x] Old notifications auto-deleted (RETENTION_DAYS, default 30)
 - [x] Old audit events auto-deleted (90 days)
 - [x] FAILED notification eventually becomes DELIVERED after retry
