@@ -40,7 +40,7 @@ const createKeySchema = z.object({
  * GET /api/keys
  * List all API keys (prefix only, not the full key).
  */
-export async function GET(request: NextRequest): Promise<NextResponse> {
+export async function GET(): Promise<NextResponse> {
   // Session auth only
   const authenticated = await isAuthenticated();
   if (!authenticated) {
