@@ -1,0 +1,189 @@
+// Notification Hub - Prisma Schema
+// See docs/planning/notification-hub.md for full data model documentation
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================================================
+// Notification
+// ============================================================================
+
+model Notification {
+  id String @id @default(cuid())
+
+  // Content
+  title    String  @db.VarChar(200)
+  message  String  @db.Text
+  markdown Boolean @default(false)
+
+  // Categorization
+  source    String // defaults to API key name
+  channelId String
+  channel   Channel  @relation(fields: [channelId], references: [id])
+  category  String? // "error", "success", "info", "warning"
+  tags      String[] @default([])
+
+  // Priority (1-5, maps to ntfy)
+  priority Int @default(3)
+
+  // Actions
+  clickUrl String?
+
+  // Metadata
+  metadata Json?
+
+  // Delivery (write-first pattern)
+  deliveryStatus DeliveryStatus @default(PENDING)
+  deliveredAt    DateTime?
+  deliveryError  String?
+  retryCount     Int            @default(0)
+
+  // Read tracking
+  readAt DateTime?
+
+  // Sender
+  apiKeyId String
+  apiKey   ApiKey @relation(fields: [apiKeyId], references: [id])
+
+  // Idempotency (back-relation)
+  idempotencyRecord IdempotencyRecord?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([createdAt(sort: Desc)])
+  @@index([source])
+  @@index([channelId])
+  @@index([deliveryStatus])
+  @@index([channelId, createdAt(sort: Desc)])
+  @@map("notifications")
+}
+
+// Note: Add partial index via raw SQL migration for optimal unread-count queries:
+// CREATE INDEX idx_notifications_unread ON notifications(channel_id, created_at DESC)
+//   WHERE read_at IS NULL;
+
+enum DeliveryStatus {
+  PENDING
+  DELIVERED
+  FAILED
+  SKIPPED
+}
+
+// ============================================================================
+// ApiKey
+// ============================================================================
+
+model ApiKey {
+  id      String @id @default(cuid())
+  name    String
+  keyHash String @unique // SHA-256
+  prefix  String @unique // "nhk_abc1..." for display, unique avoids UI confusion
+
+  canSend   Boolean @default(true)
+  canRead   Boolean @default(false)
+  rateLimit Int     @default(100) // requests per minute
+
+  description String?
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+  isActive    Boolean   @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  notifications      Notification[]
+  idempotencyRecords IdempotencyRecord[]
+
+  @@index([prefix])
+  @@map("api_keys")
+}
+
+// ============================================================================
+// IdempotencyRecord
+// ============================================================================
+
+// Separate table for correct TTL-based idempotency. The unique constraint
+// ensures exactly-once semantics; a cleanup job removes expired records.
+// Foreign keys ensure referential integrity and cascade deletes.
+
+model IdempotencyRecord {
+  id String @id @default(cuid())
+
+  apiKeyId String
+  apiKey   ApiKey @relation(fields: [apiKeyId], references: [id], onDelete: Cascade)
+
+  idempotencyKey String
+
+  notificationId String       @unique // 1:1 with Notification
+  notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@unique([apiKeyId, idempotencyKey])
+  @@index([expiresAt])
+  @@map("idempotency_records")
+}
+
+// ============================================================================
+// Channel
+// ============================================================================
+
+// Channels route to different ntfy topics so you can mute `dev` on your phone
+// without missing `prod`. The API accepts `channel` by name, looks up the
+// Channel record, and stores `channelId`.
+
+model Channel {
+  id          String  @id @default(cuid())
+  name        String  @unique // "prod", "dev", "personal", "default"
+  ntfyTopic   String? // null = use NTFY_DEFAULT_TOPIC
+  description String?
+
+  notifications Notification[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("channels")
+}
+
+// ============================================================================
+// AuditEvent
+// ============================================================================
+
+model AuditEvent {
+  id         String      @id @default(cuid())
+  action     AuditAction
+  actorType  ActorType
+  actorId    String? // API key ID or null for admin
+  actorIp    String?
+  targetType String? // "api_key", "notification"
+  targetId   String?
+  metadata   Json? // { userAgent, requestPath, ... }
+
+  createdAt DateTime @default(now())
+
+  @@index([createdAt(sort: Desc)])
+  @@map("audit_events")
+}
+
+enum AuditAction {
+  API_KEY_CREATED
+  API_KEY_REVOKED
+  DASHBOARD_LOGIN
+  DASHBOARD_LOGIN_FAILED
+  NOTIFICATIONS_BULK_READ
+  // Add NOTIFICATIONS_BULK_DELETE if/when bulk delete endpoint is added
+}
+
+enum ActorType {
+  ADMIN
+  API_KEY
+  SYSTEM
+}
