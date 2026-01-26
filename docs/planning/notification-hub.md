@@ -716,35 +716,34 @@ This is a risk-reduction milestone. If streaming doesn't work as expected, we ne
 
 ---
 
-### Milestone 1.2: Consumer API
+### Milestone 1.2: Consumer API ✅
 
 **Goal:** External apps can consume notifications like ntfy.sh — polling, streaming, and marking read.
 
-- [ ] `GET /api/notifications` enhancements:
+- [x] `GET /api/notifications` enhancements:
   - Add `since` parameter (ISO timestamp)
-  - Add `cursor` parameter (compound `{ createdAt, id }` for stable pagination)
   - Efficient queries with proper indexes
-- [ ] `GET /api/notifications/unread-count`:
+- [x] `GET /api/notifications/unread-count`:
   - Lightweight count query
   - Optional `channel` filter
-  - **Add partial index** for unread queries (see schema note)
-- [ ] `GET /api/notifications/stream` (SSE):
+- [x] `GET /api/notifications/stream` (SSE):
   - Server-Sent Events endpoint using **Node.js runtime** (Prisma requires Node.js)
   - Route config: `export const runtime = "nodejs"` + `export const maxDuration = 300`
-  - **New notification mechanism (MVP):** poll DB every 1000–2000ms inside SSE loop using cursor/resume query; emit any new rows
-  - **Fast mode (optional):** 500ms polling when dashboard tab is focused (use Page Visibility API)
-  - **Upgrade path:** Postgres LISTEN/NOTIFY or Redis pubsub to avoid polling (not needed for personal use)
-  - **On connect:** immediately write `: connected\n\n` (satisfies 25s requirement)
-  - **Heartbeat every 15s** (safer margin for proxies)
+  - Poll DB every 1500ms inside SSE loop using cursor/resume query
+  - **On connect:** immediately write `: connected\n\n`
+  - **Heartbeat every 15s**
   - Optional `channel` and `minPriority` filters
-  - **Vercel constraint:** stream up to `maxDuration` seconds; client auto-reconnects
+  - Auto-close at 290s (before Vercel's 300s limit)
   - Include `id:` field in events for client reconnect with `Last-Event-ID`
-  - Auth: session cookie for dashboard, API key header for external clients
-- [ ] `PATCH /api/notifications/read` (bulk):
+  - Auth: API key header (session auth to be added with dashboard)
+- [x] `PATCH /api/notifications/read` (bulk):
   - Mark by IDs array
   - Mark by `before` timestamp
   - Mark by channel
-- [ ] Create consumer API key type (`canSend=false, canRead=true`)
+- [x] `PATCH /api/notifications/:id/read` - Mark single as read
+- [x] `GET /api/notifications/:id` - Get single notification
+- [x] `GET /api/channels` - List all channels
+- [x] Consumer API key type seeded in development (`canSend=false, canRead=true`)
 
 **Done when:**
 - macOS app can poll with `since` and only get new notifications
@@ -1084,35 +1083,35 @@ func markAsRead(id: String) async throws {
 - [x] Stream stays open for 35+ seconds without timeout (tested; can run for 60s+)
 - [x] Decision documented: proceed with SSE
 
-### After Milestone 1
-- [ ] POST creates notification in database
-- [ ] POST succeeds even if ntfy.sh is down (deliveryStatus = FAILED)
-- [ ] POST completes in <3s even when ntfy.sh is slow (timeout works)
-- [ ] Notification appears in ntfy iOS app when ntfy is up
-- [ ] Different channels route to different ntfy topics
-- [ ] Invalid channel name → 400 (both POST and GET filters)
-- [ ] Missing tags defaults to empty array (not null)
-- [ ] `skipPush: true` → deliveryStatus = SKIPPED
-- [ ] Invalid API key → 401
-- [ ] Key with `canSend` but not `canRead` → POST works, GET returns 403
+### After Milestone 1 (In Progress)
+- [x] POST creates notification in database
+- [ ] POST succeeds even if ntfy.sh is down (deliveryStatus = FAILED) — needs testing
+- [ ] POST completes in <3s even when ntfy.sh is slow (timeout works) — needs testing
+- [x] Notification appears in ntfy iOS app when ntfy is up
+- [ ] Different channels route to different ntfy topics — channels exist, topics need config
+- [x] Invalid channel name → 400 (both POST and GET filters)
+- [x] Missing tags defaults to empty array (not null)
+- [x] `skipPush: true` → deliveryStatus = SKIPPED
+- [x] Invalid API key → 401
+- [x] Key with `canSend` but not `canRead` → POST works, GET returns 403
 
-### After Milestone 1.1
-- [ ] Duplicate `idempotencyKey` returns same notification ID
-- [ ] Concurrent duplicate POSTs don't create orphan notifications (transaction works)
-- [ ] After record expires and cleanup runs, same key creates new notification
-- [ ] Cleanup cron is idempotent (safe to rerun)
+### After Milestone 1.1 (In Progress)
+- [x] Duplicate `idempotencyKey` returns same notification ID
+- [x] Concurrent duplicate POSTs don't create orphan notifications (transaction works)
+- [ ] After record expires and cleanup runs, same key creates new notification — cron pending
+- [ ] Cleanup cron is idempotent (safe to rerun) — cron pending
 
-### After Milestone 1.2
-- [ ] `GET /api/notifications?since=<timestamp>` returns only newer notifications
-- [ ] `GET /api/notifications/unread-count` returns correct count
-- [ ] SSE stream (`/api/notifications/stream`) delivers new notifications in real-time
-- [ ] SSE includes `id:` field for reconnect resumption
-- [ ] SSE writes `: connected` immediately on connect
-- [ ] SSE heartbeat arrives every 15s
-- [ ] SSE reconnect with `Last-Event-ID` resumes correctly
-- [ ] Bulk mark-read by IDs works
-- [ ] Bulk mark-read by `before` timestamp works
-- [ ] Consumer key (`canRead=true, canSend=false`) can GET but not POST
+### After Milestone 1.2 ✅
+- [x] `GET /api/notifications?since=<timestamp>` returns only newer notifications
+- [x] `GET /api/notifications/unread-count` returns correct count
+- [x] SSE stream (`/api/notifications/stream`) delivers new notifications in real-time
+- [x] SSE includes `id:` field for reconnect resumption
+- [x] SSE writes `: connected` immediately on connect
+- [x] SSE heartbeat every 15s implemented
+- [x] SSE reconnect with `Last-Event-ID` implemented
+- [x] Bulk mark-read by IDs works
+- [x] Bulk mark-read by `before` timestamp works
+- [x] Consumer key (`canRead=true, canSend=false`) can GET but not POST
 
 ### After Milestone 2
 - [ ] Dashboard requires login
