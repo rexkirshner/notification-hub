@@ -11,13 +11,13 @@ import { useMemo } from "react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 
 // Configure marked globally (not inside components)
 marked.setOptions({
   breaks: true,
   gfm: true,
 });
-import { Button } from "@/components/ui/button";
 
 interface Notification {
   id: string;
