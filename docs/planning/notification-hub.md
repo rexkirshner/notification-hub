@@ -829,10 +829,12 @@ This is a risk-reduction milestone. If streaming doesn't work as expected, we ne
   - Processes up to 20 notifications per run
 
 #### SDK
-- [ ] Minimal TypeScript SDK:
+- [x] Minimal TypeScript SDK:
   - `send()` method with full typing
   - Idempotency key helper
-  - Error handling
+  - Custom error classes (RateLimitError, NotificationHubError)
+  - Request timeout support
+  - Detailed README with usage examples
 
 #### Observability (minimal)
 - [ ] Log and count FAILED deliveries (ntfy errors vs timeouts)
@@ -1152,5 +1154,5 @@ func markAsRead(id: String) async throws {
 - [x] Old audit events auto-deleted (90 days)
 - [x] FAILED notification eventually becomes DELIVERED after retry
 - [x] Retry cron with exponential backoff (every 15 min)
-- [ ] TypeScript SDK published
-- [ ] Basic observability metrics
+- [x] TypeScript SDK created (sdk/ folder)
+- [ ] Basic observability metrics (optional)
