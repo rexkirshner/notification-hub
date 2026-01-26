@@ -767,7 +767,7 @@ This is a risk-reduction milestone. If streaming doesn't work as expected, we ne
   - Log success/failure to AuditEvent
   - **Login throttling:** IP-based rate limit (5 failures → delay, 10 → block 15min)
   - All Consumer API endpoints support session OR API key auth
-- [ ] CSRF tokens for all mutations (TODO)
+- [ ] CSRF tokens for all mutations (low priority for single-user app)
 - [x] Notification list:
   - Pagination
   - Mark read / mark all read
@@ -775,9 +775,10 @@ This is a risk-reduction milestone. If streaming doesn't work as expected, we ne
 - [x] Notification filters:
   - Channel dropdown (all, default, prod, dev, personal)
   - Category dropdown (all, error, success, info, warning)
-  - Priority dropdown (min priority filter)
+  - Priority dropdown (min priority filter with server-side support)
   - Unread only toggle
   - Filters stored in URL params (bookmarkable)
+  - URL param validation (invalid values ignored gracefully)
 - [x] Markdown rendering:
   - Sanitize with DOMPurify
   - Only safe HTML tags allowed
@@ -786,7 +787,7 @@ This is a risk-reduction milestone. If streaming doesn't work as expected, we ne
   - Revoke (soft delete)
   - List (prefix only)
   - All actions logged to AuditEvent
-- [ ] Audit log viewer (optional)
+- [ ] Audit log viewer (optional, can query DB directly)
 
 **Done when:**
 - Dashboard requires login
@@ -1126,7 +1127,7 @@ func markAsRead(id: String) async throws {
 - [x] Bulk mark-read by `before` timestamp works
 - [x] Consumer key (`canRead=true, canSend=false`) can GET but not POST
 
-### After Milestone 2 (In Progress)
+### After Milestone 2 ✅
 - [x] Dashboard requires login
 - [x] Failed login logged to audit
 - [x] Login throttling blocks after repeated failures from same IP
@@ -1136,11 +1137,16 @@ func markAsRead(id: String) async throws {
 - [x] Key revoke works and is audited
 - [ ] CSRF tokens protect dashboard mutations (low priority for single-user app)
 - [x] Notification filters (channel, category, priority, unread only)
+- [x] minPriority filter supported in both list API and stream API
+- [x] Invalid URL params handled gracefully (validated before use)
 
 ### After Milestone 3 (In Progress)
 - [ ] Queries fast with 10k+ notifications
+- [ ] GIN index on tags column
 - [ ] Rate limit blocks when exceeded
 - [x] Old notifications auto-deleted (RETENTION_DAYS, default 30)
 - [x] Old audit events auto-deleted (90 days)
 - [x] FAILED notification eventually becomes DELIVERED after retry
 - [x] Retry cron with exponential backoff (every 15 min)
+- [ ] TypeScript SDK published
+- [ ] Basic observability metrics
