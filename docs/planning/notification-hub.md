@@ -1,4 +1,4 @@
-# Notification Hub - Implementation Plan (v2)
+# Notification Hub - Implementation Plan
 
 A centralized notification system where any project can send notifications via HTTP API, with delivery to a web dashboard and iOS push via ntfy.sh.
 
