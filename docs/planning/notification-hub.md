@@ -115,6 +115,7 @@ Beyond logging failed logins, implement IP-based rate limiting on `/api/auth/log
 | Request body | 100KB max |
 | `title` | 200 chars |
 | `message` | 10,000 chars |
+| `clickUrl` | 2,000 chars |
 | `tags` | 10 items max, 50 chars each |
 | `metadata` | 10KB max |
 | `idempotencyKey` | 256 chars |
@@ -234,7 +235,7 @@ model IdempotencyRecord {
 
   idempotencyKey String
 
-  notificationId String
+  notificationId String   @unique  // 1:1 with Notification
   notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
 
   expiresAt      DateTime
@@ -250,9 +251,15 @@ model IdempotencyRecord {
 
 ```
 1. POST with `idempotencyKey`:
-   a. First, check if IdempotencyRecord exists for (apiKeyId, idempotencyKey)
+   a. Check if IdempotencyRecord exists for (apiKeyId, idempotencyKey)
    b. If exists AND not expired: return linked notification (200 OK, no side effects)
-   c. If not exists or expired:
+   c. If exists AND expired:
+      BEGIN TRANSACTION
+        - Delete expired IdempotencyRecord
+        - Create Notification
+        - Create new IdempotencyRecord linking to notification
+      COMMIT
+   d. If not exists:
       BEGIN TRANSACTION
         - Create Notification
         - Create IdempotencyRecord linking to new notification
@@ -263,10 +270,10 @@ model IdempotencyRecord {
    - Another request created the record between check and insert
    - Fetch the existing record → return its notification
 
-3. Cleanup job deletes records where `expiresAt < now()`
+3. Cleanup cron deletes old expired records (optimization, not correctness)
 ```
 
-This ensures exactly-once semantics: no orphan notifications, no duplicates even under concurrent requests.
+**Key insight:** Deleting expired records inside the transaction makes correctness independent of cron timing. The cron is for cleanup, not correctness.
 
 ### Channel
 
@@ -451,6 +458,12 @@ interface ListNotificationsQuery {
 
 **Cursor pagination:** Uses compound cursor `{ createdAt, id }` encoded as opaque string. This avoids duplicates/gaps under concurrent inserts (unlike `afterId` alone which is unstable when sorting by `createdAt`).
 
+**Pagination rules:**
+- If `cursor` is present: use cursor-based pagination, ignore `page`
+- If only `page` is present: use offset-based pagination
+- Dashboard defaults to cursor-based for stability
+- Response includes `nextCursor` if more results exist
+
 **Efficient polling:** Use `since` parameter to fetch only new notifications:
 ```bash
 # Initial fetch
@@ -486,18 +499,27 @@ async function streamNotifications(apiKey: string) {
 
   const reader = response.body!.getReader();
   const decoder = new TextDecoder();
+  let buffer = '';  // Buffer for partial chunks
 
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
 
-    const text = decoder.decode(value);
-    // Parse SSE format: "event: notification\ndata: {...}\n\n"
-    const lines = text.split('\n');
-    // ... handle events
+    buffer += decoder.decode(value, { stream: true });
+
+    // SSE events end with \n\n — only process complete events
+    const events = buffer.split('\n\n');
+    buffer = events.pop() || '';  // Keep incomplete event in buffer
+
+    for (const event of events) {
+      // Parse SSE format: "id: xxx\nevent: notification\ndata: {...}"
+      // ... handle complete events
+    }
   }
 }
 ```
+
+**Note:** SSE parsing requires buffering across chunk boundaries. A single `read()` may return partial events — always split on `\n\n` and keep incomplete data in a buffer.
 
 **Query parameters:**
 - `channel` — filter to specific channel
@@ -506,12 +528,13 @@ async function streamNotifications(apiKey: string) {
 **Events:**
 - `notification` — new notification created
 - `read` — notification marked as read (for syncing across clients)
-- `heartbeat` — keepalive every 30s
+- `heartbeat` — keepalive every 15s
 
 **Vercel streaming constraints:**
 - Uses **Edge Runtime** for streaming support
 - Stream up to **~300 seconds**; must start response within **~25 seconds**
-- Heartbeat every 30s satisfies the "start sending" requirement
+- **On connect:** immediately write `: connected\n\n` and flush (satisfies the 25s requirement)
+- **Heartbeat every 15s** (not 30s — safer margin for proxies/timeouts)
 - Clients must implement **auto-reconnect** with `Last-Event-ID` header
 - Server sends `id:` field with each event for resumption
 
@@ -644,7 +667,8 @@ curl -X PATCH "https://your-hub.vercel.app/api/notifications/read" \
 - [ ] `GET /api/notifications/stream` (SSE):
   - Server-Sent Events endpoint using **Edge Runtime**
   - Real-time push of new notifications
-  - Heartbeat every 30s (must start response within 25s)
+  - **On connect:** immediately write `: connected\n\n` (satisfies 25s requirement)
+  - **Heartbeat every 15s** (safer margin for proxies)
   - Optional `channel` and `minPriority` filters
   - **Vercel constraint:** stream up to ~300s; client auto-reconnects
   - Include `id:` field in events for client reconnect with `Last-Event-ID`
@@ -997,7 +1021,8 @@ func markAsRead(id: String) async throws {
 - [ ] `GET /api/notifications/unread-count` returns correct count
 - [ ] SSE stream (`/api/notifications/stream`) delivers new notifications in real-time
 - [ ] SSE includes `id:` field for reconnect resumption
-- [ ] SSE heartbeat arrives every 30s
+- [ ] SSE writes `: connected` immediately on connect
+- [ ] SSE heartbeat arrives every 15s
 - [ ] SSE reconnect with `Last-Event-ID` resumes correctly
 - [ ] Bulk mark-read by IDs works
 - [ ] Bulk mark-read by `before` timestamp works
