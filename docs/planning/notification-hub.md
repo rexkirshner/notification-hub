@@ -757,24 +757,27 @@ This is a risk-reduction milestone. If streaming doesn't work as expected, we ne
 
 ---
 
-### Milestone 2: Web Dashboard
+### Milestone 2: Web Dashboard (In Progress)
 
 **Goal:** Usable UI with strong security boundaries.
 
-- [ ] Dashboard auth:
-  - Session-based (httpOnly, secure, sameSite cookie)
-  - Password hash verification
-  - CSRF tokens for all mutations
+- [x] Dashboard auth:
+  - Session-based (httpOnly, secure, sameSite cookie) via iron-session
+  - Password hash verification with bcrypt
   - Log success/failure to AuditEvent
   - **Login throttling:** IP-based rate limit (5 failures → delay, 10 → block 15min)
-- [ ] Notification list:
-  - Channel tabs
-  - Filters: source, category, tags, status, unreadOnly
+  - All Consumer API endpoints support session OR API key auth
+- [ ] CSRF tokens for all mutations (TODO)
+- [x] Notification list:
   - Pagination
   - Mark read / mark all read
-- [ ] Markdown rendering:
-  - Sanitize with DOMPurify (or safe renderer)
-  - Test that `<script>` and `javascript:` are stripped
+  - Real-time updates via SSE
+- [ ] Notification filters:
+  - Channel tabs (TODO)
+  - Filters: source, category, tags, status, unreadOnly (TODO)
+- [x] Markdown rendering:
+  - Sanitize with DOMPurify
+  - Only safe HTML tags allowed
 - [ ] API key management:
   - Create (show plaintext once, then only prefix)
   - Revoke
@@ -1118,14 +1121,15 @@ func markAsRead(id: String) async throws {
 - [x] Bulk mark-read by `before` timestamp works
 - [x] Consumer key (`canRead=true, canSend=false`) can GET but not POST
 
-### After Milestone 2
-- [ ] Dashboard requires login
-- [ ] Failed login logged to audit
-- [ ] Login throttling blocks after repeated failures from same IP
-- [ ] `<script>alert(1)</script>` in markdown doesn't execute
-- [ ] `javascript:alert(1)` in clickUrl is rejected (only http/https allowed)
+### After Milestone 2 (In Progress)
+- [x] Dashboard requires login
+- [x] Failed login logged to audit
+- [x] Login throttling blocks after repeated failures from same IP
+- [x] `<script>alert(1)</script>` in markdown doesn't execute (DOMPurify)
+- [x] `javascript:alert(1)` in clickUrl is rejected (only http/https allowed)
 - [ ] Key create shows plaintext once, then only prefix
 - [ ] Key revoke works and is audited
+- [ ] CSRF tokens protect dashboard mutations
 
 ### After Milestone 3
 - [ ] Queries fast with 10k+ notifications
