@@ -10,39 +10,70 @@
  * Uses @prisma/adapter-pg for Prisma 7+ compatibility with direct PostgreSQL connections.
  */
 
-import { Pool } from "pg";
+import { Pool, type PoolConfig } from "pg";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
 
+// Store singleton instances globally to survive hot reloads in development
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
   pool: Pool | undefined;
 };
 
-function createPrismaClient() {
-  // Create connection pool
-  const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
+/**
+ * Creates or returns the existing database connection pool.
+ * The pool is stored globally to prevent connection leaks during hot reloads.
+ */
+function getPool(): Pool {
+  if (globalForPrisma.pool) {
+    return globalForPrisma.pool;
+  }
+
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    throw new Error("DATABASE_URL environment variable is not set");
+  }
+
+  const poolConfig: PoolConfig = {
+    connectionString,
+    // Reasonable defaults for serverless environment
+    max: 10,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 10000,
+  };
+
+  const pool = new Pool(poolConfig);
+
+  // Handle pool errors to prevent unhandled rejections
+  pool.on("error", (err) => {
+    console.error("Unexpected database pool error:", err);
   });
 
-  // Store pool for reuse in development
   globalForPrisma.pool = pool;
+  return pool;
+}
 
-  // Create adapter
+/**
+ * Creates or returns the existing PrismaClient instance.
+ */
+function getPrismaClient(): PrismaClient {
+  if (globalForPrisma.prisma) {
+    return globalForPrisma.prisma;
+  }
+
+  const pool = getPool();
   const adapter = new PrismaPg(pool);
 
-  // Create and return PrismaClient with adapter
-  return new PrismaClient({
+  const prisma = new PrismaClient({
     adapter,
     log:
       process.env.NODE_ENV === "development"
         ? ["query", "error", "warn"]
         : ["error"],
   });
+
+  globalForPrisma.prisma = prisma;
+  return prisma;
 }
 
-export const db = globalForPrisma.prisma ?? createPrismaClient();
-
-if (process.env.NODE_ENV !== "production") {
-  globalForPrisma.prisma = db;
-}
+export const db = getPrismaClient();
