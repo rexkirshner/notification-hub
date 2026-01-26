@@ -160,7 +160,7 @@ export type UnreadCountInput = z.infer<typeof unreadCountSchema>;
  */
 export const bulkMarkReadSchema = z
   .object({
-    ids: z.array(z.string()).optional(),
+    ids: z.array(z.string()).min(1, "ids array must not be empty").optional(),
     before: z
       .string()
       .optional()
