@@ -7,16 +7,23 @@ A centralized notification system where any project can send notifications via H
 ## Architecture
 
 ```
+     PRODUCERS                           HUB                              CONSUMERS
 ┌─────────────────┐     ┌─────────────────────────────────┐     ┌─────────────────┐
-│  Your Projects  │────▶│  Notification Hub API (Vercel)  │────▶│  ntfy.sh        │
-│  (curl/SDK)     │     │  Next.js + Vercel Postgres      │     │  (iOS Push)     │
-└─────────────────┘     └─────────────────────────────────┘     └─────────────────┘
+│  Your Projects  │────▶│  Notification Hub API (Vercel)  │────▶│  ntfy.sh (iOS)  │
+│  (curl/SDK)     │     │  Next.js + Vercel Postgres      │     └─────────────────┘
+└─────────────────┘     └─────────────────────────────────┘
                                       │
-                                      ▼
-                              ┌───────────────┐
-                              │ Web Dashboard │
-                              └───────────────┘
+                        ┌─────────────┼─────────────┐
+                        ▼             ▼             ▼
+                ┌───────────┐ ┌───────────┐ ┌───────────┐
+                │    Web    │ │   macOS   │ │   CLI /   │
+                │ Dashboard │ │    App    │ │  Widgets  │
+                └───────────┘ └───────────┘ └───────────┘
+                              (Consumer API)
 ```
+
+**Producer API:** Projects send notifications via POST
+**Consumer API:** Apps read notifications via GET, SSE stream, mark-read
 
 ## Tech Stack
 
@@ -264,22 +271,45 @@ enum ActorType {
 
 ## API Endpoints
 
+### Producer API (sending notifications)
+
 ```
 POST   /api/notifications           # canSend
-GET    /api/notifications           # canRead or session
-GET    /api/notifications/:id       # canRead or session
-PATCH  /api/notifications/:id/read  # canRead or session
+```
+
+### Consumer API (reading notifications)
+
+The Consumer API allows any client (macOS app, CLI tool, custom widget) to consume notifications — replicating the ntfy.sh experience across your own apps.
+
+```
+GET    /api/notifications           # canRead or session - list with filters
+GET    /api/notifications/:id       # canRead or session - single notification
+GET    /api/notifications/stream    # canRead or session - SSE real-time stream
+GET    /api/notifications/unread-count  # canRead or session - lightweight poll
+
+PATCH  /api/notifications/:id/read  # canRead or session - mark single as read
+PATCH  /api/notifications/read      # canRead or session - bulk mark as read
 DELETE /api/notifications/:id       # session only
+```
 
+### Admin API
+
+```
 GET    /api/channels                # canRead or session
-
 POST   /api/keys                    # session only
 GET    /api/keys                    # session only
 DELETE /api/keys/:id                # session only
-
 GET    /api/audit                   # session only
 GET    /api/health                  # public
 ```
+
+### API Key Types
+
+| Key Type | canSend | canRead | Use Case |
+|----------|---------|---------|----------|
+| Sender | ✓ | ✗ | CI pipelines, webhooks, scripts |
+| Consumer | ✗ | ✓ | macOS app, CLI tool, widgets |
+| Full | ✓ | ✓ | Development/testing only |
 
 ### POST /api/notifications
 
@@ -322,6 +352,119 @@ interface CreateNotificationRequest {
 **Critical:** The ntfy fetch must have a hard timeout (2 seconds max). This ensures POST latency stays stable even when ntfy.sh is slow or down. Failed deliveries are picked up by the retry cron.
 
 POST succeeds even if ntfy is down. Failed deliveries can be retried later.
+
+### Consumer API Details
+
+#### GET /api/notifications
+
+List notifications with filtering and pagination.
+
+```typescript
+interface ListNotificationsQuery {
+  // Pagination
+  page?: number;              // default: 1
+  limit?: number;             // default: 50, max: 100
+
+  // Cursor-based pagination (alternative to page)
+  afterId?: string;           // return notifications after this ID
+  since?: string;             // ISO timestamp - only notifications after this time
+
+  // Filters
+  channel?: string;
+  source?: string;
+  category?: string;
+  tags?: string[];            // notifications containing ALL tags
+  deliveryStatus?: string;
+  unreadOnly?: boolean;       // only where readAt is null
+  priority?: number;          // minimum priority
+
+  // Sorting
+  sort?: "createdAt" | "priority";
+  order?: "asc" | "desc";     // default: desc
+}
+```
+
+**Efficient polling:** Use `since` parameter to fetch only new notifications:
+```bash
+# Initial fetch
+curl -H "Authorization: Bearer nhk_xxx" \
+  "https://your-hub.vercel.app/api/notifications?limit=50"
+
+# Subsequent polls - only get new ones
+curl -H "Authorization: Bearer nhk_xxx" \
+  "https://your-hub.vercel.app/api/notifications?since=2024-01-15T10:30:00Z"
+```
+
+#### GET /api/notifications/stream
+
+Server-Sent Events endpoint for real-time notifications. Clients receive new notifications as they arrive without polling.
+
+```typescript
+// Client usage
+const eventSource = new EventSource(
+  'https://your-hub.vercel.app/api/notifications/stream',
+  { headers: { 'Authorization': 'Bearer nhk_xxx' } }
+);
+
+eventSource.onmessage = (event) => {
+  const notification = JSON.parse(event.data);
+  console.log('New notification:', notification);
+};
+```
+
+**Query parameters:**
+- `channel` — filter to specific channel
+- `minPriority` — only stream notifications >= this priority
+
+**Events:**
+- `notification` — new notification created
+- `read` — notification marked as read (for syncing across clients)
+- `heartbeat` — keepalive every 30s
+
+#### GET /api/notifications/unread-count
+
+Lightweight endpoint for polling unread count (e.g., for badge display).
+
+```bash
+curl -H "Authorization: Bearer nhk_xxx" \
+  "https://your-hub.vercel.app/api/notifications/unread-count"
+
+# Response: { "count": 5 }
+```
+
+**Query parameters:**
+- `channel` — count for specific channel only
+
+#### PATCH /api/notifications/read
+
+Bulk mark notifications as read.
+
+```typescript
+interface BulkMarkReadRequest {
+  // Option 1: specific IDs
+  ids?: string[];
+
+  // Option 2: mark all before timestamp
+  before?: string;  // ISO timestamp
+
+  // Option 3: mark all in channel
+  channel?: string;
+}
+```
+
+```bash
+# Mark specific notifications as read
+curl -X PATCH "https://your-hub.vercel.app/api/notifications/read" \
+  -H "Authorization: Bearer nhk_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{"ids": ["abc123", "def456"]}'
+
+# Mark all notifications as read
+curl -X PATCH "https://your-hub.vercel.app/api/notifications/read" \
+  -H "Authorization: Bearer nhk_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{"before": "2024-01-15T12:00:00Z"}'
+```
 
 ---
 
@@ -386,6 +529,36 @@ POST succeeds even if ntfy is down. Failed deliveries can be retried later.
 **Done when:**
 - Duplicate POST with same `idempotencyKey` returns original notification (same `id`)
 - After cleanup runs, same key can create new notification
+
+---
+
+### Milestone 1.2: Consumer API
+
+**Goal:** External apps can consume notifications like ntfy.sh — polling, streaming, and marking read.
+
+- [ ] `GET /api/notifications` enhancements:
+  - Add `since` parameter (ISO timestamp)
+  - Add `afterId` parameter (cursor-based pagination)
+  - Efficient queries with proper indexes
+- [ ] `GET /api/notifications/unread-count`:
+  - Lightweight count query
+  - Optional `channel` filter
+- [ ] `GET /api/notifications/stream` (SSE):
+  - Server-Sent Events endpoint
+  - Real-time push of new notifications
+  - Heartbeat every 30s
+  - Optional `channel` and `minPriority` filters
+- [ ] `PATCH /api/notifications/read` (bulk):
+  - Mark by IDs array
+  - Mark by `before` timestamp
+  - Mark by channel
+- [ ] Create consumer API key type (`canSend=false, canRead=true`)
+
+**Done when:**
+- macOS app can poll with `since` and only get new notifications
+- SSE stream delivers notifications in real-time
+- Bulk mark-read works for all three modes
+- Consumer key can read but cannot send
 
 ---
 
@@ -505,10 +678,13 @@ notification-hub/
 │   │   ├── api/
 │   │   │   ├── health/route.ts
 │   │   │   ├── notifications/
-│   │   │   │   ├── route.ts
+│   │   │   │   ├── route.ts              # GET list, POST create
+│   │   │   │   ├── stream/route.ts       # GET SSE stream
+│   │   │   │   ├── unread-count/route.ts # GET count
+│   │   │   │   ├── read/route.ts         # PATCH bulk mark read
 │   │   │   │   └── [id]/
-│   │   │   │       ├── route.ts
-│   │   │   │       └── read/route.ts
+│   │   │   │       ├── route.ts          # GET single, DELETE
+│   │   │   │       └── read/route.ts     # PATCH mark single read
 │   │   │   ├── channels/route.ts
 │   │   │   ├── keys/
 │   │   │   │   ├── route.ts
@@ -598,6 +774,65 @@ notify() {
 
 ---
 
+## Consumer App Examples
+
+### Polling for new notifications (macOS app, CLI)
+
+```bash
+# Store last check time
+LAST_CHECK="2024-01-15T10:00:00Z"
+
+# Fetch only new notifications
+curl -H "Authorization: Bearer $CONSUMER_KEY" \
+  "https://your-hub.vercel.app/api/notifications?since=$LAST_CHECK&unreadOnly=true"
+```
+
+### Real-time streaming (SSE)
+
+```typescript
+// TypeScript/JavaScript client
+const eventSource = new EventSource(
+  'https://your-hub.vercel.app/api/notifications/stream',
+  { headers: { 'Authorization': `Bearer ${CONSUMER_KEY}` } }
+);
+
+eventSource.addEventListener('notification', (event) => {
+  const notification = JSON.parse(event.data);
+  showDesktopNotification(notification.title, notification.message);
+});
+
+eventSource.addEventListener('heartbeat', () => {
+  console.log('Connection alive');
+});
+```
+
+### Swift (macOS menu bar app)
+
+```swift
+// Fetch unread count for badge
+func fetchUnreadCount() async throws -> Int {
+    let url = URL(string: "https://your-hub.vercel.app/api/notifications/unread-count")!
+    var request = URLRequest(url: url)
+    request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+
+    let (data, _) = try await URLSession.shared.data(for: request)
+    let response = try JSONDecoder().decode(UnreadCountResponse.self, from: data)
+    return response.count
+}
+
+// Mark notification as read
+func markAsRead(id: String) async throws {
+    let url = URL(string: "https://your-hub.vercel.app/api/notifications/\(id)/read")!
+    var request = URLRequest(url: url)
+    request.httpMethod = "PATCH"
+    request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+
+    let (_, _) = try await URLSession.shared.data(for: request)
+}
+```
+
+---
+
 ## Verification Checklist
 
 ### After Milestone 0
@@ -619,6 +854,15 @@ notify() {
 ### After Milestone 1.1
 - [ ] Duplicate `idempotencyKey` returns same notification ID
 - [ ] After record expires and cleanup runs, same key creates new notification
+
+### After Milestone 1.2
+- [ ] `GET /api/notifications?since=<timestamp>` returns only newer notifications
+- [ ] `GET /api/notifications/unread-count` returns correct count
+- [ ] SSE stream (`/api/notifications/stream`) delivers new notifications in real-time
+- [ ] SSE heartbeat arrives every 30s
+- [ ] Bulk mark-read by IDs works
+- [ ] Bulk mark-read by `before` timestamp works
+- [ ] Consumer key (`canRead=true, canSend=false`) can GET but not POST
 
 ### After Milestone 2
 - [ ] Dashboard requires login
