@@ -104,6 +104,7 @@ This prevents malicious URLs from being rendered/opened by consumer apps.
 ### Login Throttling
 
 Beyond logging failed logins, implement IP-based rate limiting on `/api/auth/login`:
+- **Get client IP:** use `x-forwarded-for` header (first value) — Vercel sits behind a proxy
 - After 5 failed attempts from same IP: add progressive delay (1s, 2s, 4s...)
 - After 10 failed attempts: block IP for 15 minutes
 - Consider CAPTCHA after 3 failures (optional)
@@ -263,12 +264,12 @@ model IdempotencyRecord {
       BEGIN TRANSACTION
         - Create Notification
         - Create IdempotencyRecord linking to new notification
-        - If unique constraint violation → ROLLBACK
-      COMMIT
+      COMMIT (or ROLLBACK on unique constraint violation)
 
-2. On constraint violation (race condition):
-   - Another request created the record between check and insert
-   - Fetch the existing record → return its notification
+2. On unique constraint violation (race condition):
+   - Another request won the race and created the record
+   - Transaction rolled back automatically
+   - Fetch the existing IdempotencyRecord → return its notification (200 + replay header)
 
 3. Cleanup cron deletes old expired records (optimization, not correctness)
 ```
@@ -323,8 +324,8 @@ enum AuditAction {
   API_KEY_REVOKED
   DASHBOARD_LOGIN
   DASHBOARD_LOGIN_FAILED
-  NOTIFICATIONS_BULK_DELETE
   NOTIFICATIONS_BULK_READ
+  // Add NOTIFICATIONS_BULK_DELETE if/when bulk delete endpoint is added
 }
 
 enum ActorType {
@@ -733,7 +734,8 @@ This is a risk-reduction milestone. If streaming doesn't work as expected, we ne
 - [ ] `GET /api/notifications/stream` (SSE):
   - Server-Sent Events endpoint using **Node.js runtime** (Prisma requires Node.js)
   - Route config: `export const runtime = "nodejs"` + `export const maxDuration = 300`
-  - **New notification mechanism (MVP):** poll DB every 500–1000ms inside SSE loop using cursor/resume query; emit any new rows
+  - **New notification mechanism (MVP):** poll DB every 1000–2000ms inside SSE loop using cursor/resume query; emit any new rows
+  - **Fast mode (optional):** 500ms polling when dashboard tab is focused (use Page Visibility API)
   - **Upgrade path:** Postgres LISTEN/NOTIFY or Redis pubsub to avoid polling (not needed for personal use)
   - **On connect:** immediately write `: connected\n\n` (satisfies 25s requirement)
   - **Heartbeat every 15s** (safer margin for proxies)
