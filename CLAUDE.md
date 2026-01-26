@@ -4,7 +4,7 @@
 
 **IMPORTANT: Always use the LOCAL development environment by default.**
 
-- **Local/Dev**: Docker Postgres on `localhost:5432` - use for ALL development work
+- **Local/Dev**: Docker Postgres on `localhost:5437` - use for ALL development work
 - **Production**: Vercel Postgres - ONLY touch when explicitly instructed
 
 ### When to use Production
