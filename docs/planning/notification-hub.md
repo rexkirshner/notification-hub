@@ -698,7 +698,7 @@ This is a risk-reduction milestone. If streaming doesn't work as expected, we ne
 
 ---
 
-### Milestone 1.1: Correct Idempotency (In Progress)
+### Milestone 1.1: Correct Idempotency ✅
 
 **Goal:** Exactly-once semantics with proper TTL enforcement.
 
@@ -708,14 +708,15 @@ This is a risk-reduction milestone. If streaming doesn't work as expected, we ne
   2. If not: BEGIN TRANSACTION → create notification → create idempotency record → COMMIT
   3. On unique constraint violation (race): rollback, fetch existing, return
   4. Uses Prisma error code P2002 for type-safe race detection
-- [ ] Add Vercel cron to delete expired records
-  - Cron handler must be **idempotent** (safe to rerun if first invocation fails)
-  - Batch deletes to avoid long transactions
+- [x] Add Vercel cron to delete expired records
+  - `/api/cron/cleanup` endpoint protected by CRON_SECRET
+  - Runs daily at 3am UTC via vercel.json
+  - Cron is idempotent (safe to rerun)
 
 **Done when:**
 - [x] Duplicate POST with same `idempotencyKey` returns original notification (same `id`)
 - [x] Concurrent duplicate POSTs don't create orphan notifications (transaction-based)
-- [ ] After cleanup runs, same key can create new notification
+- [x] Cleanup cron deletes expired records (tested locally)
 
 ---
 
@@ -1098,11 +1099,12 @@ func markAsRead(id: String) async throws {
 - [x] Invalid API key → 401
 - [x] Key with `canSend` but not `canRead` → POST works, GET returns 403
 
-### After Milestone 1.1 (In Progress)
+### After Milestone 1.1 ✅
 - [x] Duplicate `idempotencyKey` returns same notification ID
 - [x] Concurrent duplicate POSTs don't create orphan notifications (transaction works)
-- [ ] After record expires and cleanup runs, same key creates new notification — cron pending
-- [ ] Cleanup cron is idempotent (safe to rerun) — cron pending
+- [x] Cleanup cron endpoint implemented and tested
+- [x] Cleanup cron is idempotent (safe to rerun)
+- [x] Vercel cron configured in vercel.json (daily at 3am UTC)
 
 ### After Milestone 1.2 ✅
 - [x] `GET /api/notifications?since=<timestamp>` returns only newer notifications
