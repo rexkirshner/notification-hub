@@ -40,16 +40,29 @@ A centralized notification system where any project can send notifications via H
 
 ## Security Model
 
-### API Key Permissions
+### API Key Permissions (Complete)
 
 | Endpoint | Required | Notes |
 |----------|----------|-------|
+| **Producer** | | |
 | `POST /api/notifications` | `canSend` | Sender keys |
-| `GET /api/notifications` | `canRead` OR session | |
-| `PATCH /api/notifications/:id/read` | `canRead` OR session | |
+| **Consumer** | | |
+| `GET /api/notifications` | `canRead` OR session | List with filters |
+| `GET /api/notifications/:id` | `canRead` OR session | Single notification |
+| `GET /api/notifications/stream` | `canRead` OR session | SSE real-time |
+| `GET /api/notifications/unread-count` | `canRead` OR session | Badge count |
+| `PATCH /api/notifications/:id/read` | `canRead` OR session | Mark single read |
+| `PATCH /api/notifications/read` | `canRead` OR session | Bulk mark read |
 | `DELETE /api/notifications/:id` | Session only | Admin |
-| `POST /api/keys` | Session only | Admin |
-| `DELETE /api/keys/:id` | Session only | Admin |
+| **Channels** | | |
+| `GET /api/channels` | `canRead` OR session | List channels |
+| **Admin** | | |
+| `POST /api/keys` | Session only | Create key |
+| `GET /api/keys` | Session only | List keys |
+| `DELETE /api/keys/:id` | Session only | Revoke key |
+| `GET /api/audit` | Session only | Audit log |
+| **Public** | | |
+| `GET /api/health` | None | Health check |
 
 ### Key Principles
 
@@ -94,6 +107,19 @@ Beyond logging failed logins, implement IP-based rate limiting on `/api/auth/log
 - After 5 failed attempts from same IP: add progressive delay (1s, 2s, 4s...)
 - After 10 failed attempts: block IP for 15 minutes
 - Consider CAPTCHA after 3 failures (optional)
+
+### Request Limits
+
+| Field | Limit |
+|-------|-------|
+| Request body | 100KB max |
+| `title` | 200 chars |
+| `message` | 10,000 chars |
+| `tags` | 10 items max, 50 chars each |
+| `metadata` | 10KB max |
+| `idempotencyKey` | 256 chars |
+
+Enforce via Zod validation. Return 400 with clear error message on violation.
 
 ---
 
@@ -381,11 +407,14 @@ interface CreateNotificationRequest {
 5. If skipPush: set SKIPPED, return
 6. Attempt ntfy push (with 2s timeout):
    - Success: set DELIVERED + deliveredAt
-   - Timeout/Failure: set FAILED + deliveryError
+   - Timeout: set FAILED + deliveryError = "timeout"
+   - Other failure: set FAILED + deliveryError = error message
 7. Return notification
 ```
 
 **Critical:** The ntfy fetch must have a hard timeout (2 seconds max). This ensures POST latency stays stable even when ntfy.sh is slow or down. Failed deliveries are picked up by the retry cron.
+
+**Logging:** Log timeouts separately from other failures for monitoring. Frequent timeouts indicate ntfy.sh issues; other failures may indicate configuration problems.
 
 POST succeeds even if ntfy is down. Failed deliveries can be retried later.
 
@@ -951,7 +980,7 @@ func markAsRead(id: String) async throws {
 - [ ] POST completes in <3s even when ntfy.sh is slow (timeout works)
 - [ ] Notification appears in ntfy iOS app when ntfy is up
 - [ ] Different channels route to different ntfy topics
-- [ ] Invalid channel name → 400
+- [ ] Invalid channel name → 400 (both POST and GET filters)
 - [ ] Missing tags defaults to empty array (not null)
 - [ ] `skipPush: true` → deliveryStatus = SKIPPED
 - [ ] Invalid API key → 401
