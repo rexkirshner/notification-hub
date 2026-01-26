@@ -811,6 +811,9 @@ This is a risk-reduction milestone. If streaming doesn't work as expected, we ne
 #### Rate Limiting
 - [x] Implement per-key RPM limit (`rateLimit` field)
 - [x] DB-based implementation (simpler, acceptable for personal/low-volume use)
+- [x] Rate limit check properly integrates with idempotency (replays don't count against limit)
+- [x] Returns proper headers (X-RateLimit-Limit/Remaining/Reset, Retry-After)
+- [x] Index on (apiKeyId, createdAt) for fast rate limit queries
 - [ ] Optional upgrade to Vercel KV (Upstash Redis) for high-volume production
 
 #### Retention
@@ -1149,7 +1152,10 @@ func markAsRead(id: String) async throws {
 - [x] GIN index on tags column
 - [x] Partial index for unread notifications
 - [x] Composite index for channel + status queries
+- [x] Index on (apiKeyId, createdAt) for rate limiting queries
 - [x] Rate limit blocks when exceeded (returns 429 with proper headers)
+- [x] Rate limit headers include Retry-After for client backoff
+- [x] Idempotent replays bypass rate limit check (don't count against limit)
 - [x] Old notifications auto-deleted (RETENTION_DAYS, default 30)
 - [x] Old audit events auto-deleted (90 days)
 - [x] FAILED notification eventually becomes DELIVERED after retry
