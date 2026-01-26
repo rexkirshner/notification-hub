@@ -17,7 +17,7 @@ import {
   listNotificationsSchema,
 } from "@/lib/validators/notification";
 import { sendNtfyPush, getNtfyTopic } from "@/lib/ntfy";
-import { DeliveryStatus, Prisma } from "@prisma/client";
+import { DeliveryStatus, Prisma, PrismaClientKnownRequestError } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
 
@@ -256,9 +256,10 @@ async function createNotificationWithIdempotency(
     });
   } catch (error) {
     // Handle unique constraint violation (race condition)
+    // Prisma error code P2002 = Unique constraint failed
     if (
-      error instanceof Error &&
-      error.message.includes("Unique constraint")
+      error instanceof PrismaClientKnownRequestError &&
+      error.code === "P2002"
     ) {
       // Another request won the race - fetch and return existing
       const existing = await db.idempotencyRecord.findUnique({
