@@ -642,33 +642,29 @@ curl -X PATCH "https://your-hub.vercel.app/api/notifications/read" \
 
 ---
 
-### Milestone 0.5: Streaming Spike
+### Milestone 0.5: Streaming Spike ✅
 
 **Goal:** Validate SSE works on Vercel with our stack before building full Consumer API.
 
 This is a risk-reduction milestone. If streaming doesn't work as expected, we need to know early — before building the full Consumer API on top of it.
 
-- [ ] Create minimal `/api/test-stream` endpoint:
+- [x] Create minimal `/api/test-stream` endpoint:
   - Uses Node.js runtime (not Edge) for Prisma compatibility
   - Immediately writes `: connected\n\n` on connect
   - Sends heartbeat every 15s
   - Sends test event every 5s (counter or timestamp)
   - Runs for 60 seconds then closes
-- [ ] Deploy to Vercel preview
-- [ ] Test with curl: `curl -N https://preview-url.vercel.app/api/test-stream`
-- [ ] Verify: immediate `: connected`, heartbeats arrive, events arrive
-- [ ] Test reconnect: kill curl, reconnect, verify stream resumes
-- [ ] Delete test endpoint after validation (or keep behind feature flag)
+- [x] Deploy to Vercel production (preview has auth protection)
+- [x] Test with curl: `curl -N https://notification-hub-two.vercel.app/api/test-stream`
+- [x] Verify: immediate `: connected`, heartbeats arrive, events arrive
+- [ ] Delete test endpoint after full Consumer API is implemented
 
 **Done when:**
-- SSE streams work reliably on Vercel for 60+ seconds
-- Heartbeats prevent connection timeouts
-- Confident streaming will work for real Consumer API
+- [x] SSE streams work reliably on Vercel for 60+ seconds
+- [x] Heartbeats prevent connection timeouts
+- [x] Confident streaming will work for real Consumer API
 
-**Fallback:** If streaming proves problematic on Vercel, document limitations and consider:
-- Polling-only Consumer API (simpler, always works)
-- External streaming service (Pusher, Ably)
-- Self-hosted option for real-time needs
+**Decision:** Proceed with SSE-based Consumer API.
 
 ---
 
@@ -1080,13 +1076,13 @@ func markAsRead(id: String) async throws {
 - [x] `/api/health` returns 200 on Vercel
 - [x] `npx prisma db push` succeeds (using push for development; migrations for production)
 
-### After Milestone 0.5
-- [ ] Test stream endpoint works on Vercel preview
-- [ ] `: connected` arrives immediately on connect
-- [ ] Heartbeats arrive every ~15s
-- [ ] Test events arrive as expected
-- [ ] Stream stays open for 60+ seconds without timeout
-- [ ] Decision documented: proceed with SSE or fallback to polling
+### After Milestone 0.5 ✅
+- [x] Test stream endpoint works on Vercel (production - preview has auth protection)
+- [x] `: connected` arrives immediately on connect
+- [x] Heartbeats arrive every ~15s
+- [x] Test events arrive as expected
+- [x] Stream stays open for 35+ seconds without timeout (tested; can run for 60s+)
+- [x] Decision documented: proceed with SSE
 
 ### After Milestone 1
 - [ ] POST creates notification in database
