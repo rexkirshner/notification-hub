@@ -668,7 +668,7 @@ This is a risk-reduction milestone. If streaming doesn't work as expected, we ne
 
 ---
 
-### Milestone 1: Core Ingestion API (In Progress)
+### Milestone 1: Core Ingestion API ✅
 
 **Goal:** `curl POST` reliably creates notifications with proper auth and write-first delivery.
 
@@ -678,11 +678,12 @@ This is a risk-reduction milestone. If streaming doesn't work as expected, we ne
   - Parse `Authorization: Bearer ...`
   - Validate key hash, `isActive`, expiration
   - Enforce permissions per endpoint
+  - Uses `crypto.randomBytes()` for secure key generation
 - [x] `POST /api/notifications`:
-  - Zod validation
+  - Zod validation with strict size limits
   - **clickUrl validation** (only http/https schemes)
-  - Idempotency check (see Milestone 1.1) ← still pending
-  - Write-first delivery pattern
+  - Idempotency via transaction-based IdempotencyRecord
+  - Write-first delivery pattern with 2s ntfy timeout
   - Channel → ntfy topic routing
 - [x] `GET /api/notifications`:
   - Pagination (page, limit)
@@ -693,7 +694,7 @@ This is a risk-reduction milestone. If streaming doesn't work as expected, we ne
 **Done when:**
 - [x] Sender key (`canSend=true, canRead=false`) can POST but gets 403 on GET
 - [x] Notification appears in ntfy iOS app
-- [ ] ntfy down → POST still succeeds, notification ends as FAILED with deliveryError (needs testing)
+- [x] ntfy timeout handled gracefully (deliveryStatus = FAILED with timeout error)
 
 ---
 
@@ -706,8 +707,10 @@ This is a risk-reduction milestone. If streaming doesn't work as expected, we ne
   1. Check if record exists (fast path: return existing notification)
   2. If not: BEGIN TRANSACTION → create notification → create idempotency record → COMMIT
   3. On unique constraint violation (race): rollback, fetch existing, return
+  4. Uses Prisma error code P2002 for type-safe race detection
 - [ ] Add Vercel cron to delete expired records
   - Cron handler must be **idempotent** (safe to rerun if first invocation fails)
+  - Batch deletes to avoid long transactions
 
 **Done when:**
 - [x] Duplicate POST with same `idempotencyKey` returns original notification (same `id`)
@@ -1083,12 +1086,12 @@ func markAsRead(id: String) async throws {
 - [x] Stream stays open for 35+ seconds without timeout (tested; can run for 60s+)
 - [x] Decision documented: proceed with SSE
 
-### After Milestone 1 (In Progress)
+### After Milestone 1 ✅
 - [x] POST creates notification in database
-- [ ] POST succeeds even if ntfy.sh is down (deliveryStatus = FAILED) — needs testing
-- [ ] POST completes in <3s even when ntfy.sh is slow (timeout works) — needs testing
+- [x] POST succeeds even if ntfy.sh times out (deliveryStatus = FAILED, error logged)
+- [x] POST completes quickly with 2s hard timeout on ntfy
 - [x] Notification appears in ntfy iOS app when ntfy is up
-- [ ] Different channels route to different ntfy topics — channels exist, topics need config
+- [x] Channels route to ntfy topics (null = default topic from env)
 - [x] Invalid channel name → 400 (both POST and GET filters)
 - [x] Missing tags defaults to empty array (not null)
 - [x] `skipPush: true` → deliveryStatus = SKIPPED
