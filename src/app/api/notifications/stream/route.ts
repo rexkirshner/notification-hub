@@ -128,6 +128,7 @@ export async function GET(request: NextRequest): Promise<Response> {
   // Track last seen notification for polling
   let lastSeenTimestamp = cursor?.timestamp || new Date();
   let lastSeenId = cursor?.id || "";
+  let isPolling = false; // Prevent concurrent polls
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -164,8 +165,11 @@ export async function GET(request: NextRequest): Promise<Response> {
         );
       }, HEARTBEAT_INTERVAL_MS);
 
-      // Poll interval
+      // Poll interval - skip if previous poll still running
       const pollInterval = setInterval(async () => {
+        if (isPolling) return; // Prevent concurrent polls
+        isPolling = true;
+
         try {
           const notifications = await fetchNewNotifications(
             lastSeenTimestamp,
@@ -190,6 +194,8 @@ export async function GET(request: NextRequest): Promise<Response> {
           }
         } catch (error) {
           console.error("Stream poll error:", error);
+        } finally {
+          isPolling = false;
         }
       }, POLL_INTERVAL_MS);
 
