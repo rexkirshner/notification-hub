@@ -1,100 +1,81 @@
-# Notification Hub - Development Guidelines
+> **Session Loop**
+> 1. Start → Read `context/STATUS.md`
+> 2. End → Run `/save`
 
-## Environment Policy
+# Notification Hub
 
-**IMPORTANT: Always use the LOCAL development environment by default.**
+Centralized notification system: projects send via HTTP API, delivered to web dashboard + iOS push via ntfy.sh.
 
-- **Local/Dev**: Docker Postgres on `localhost:5437` - use for ALL development work
-- **Production**: Vercel Postgres - ONLY touch when explicitly instructed
+## Status
 
-### When to use Production
+**Feature-complete.** Milestones 0-3 done. Ready for production use.
 
-Only interact with production when the user explicitly says:
-- "deploy to production"
-- "push to prod"
-- "update production"
-- "run migration on production"
-- Or similar explicit production references
+## Stack
 
-### When to use Local (Default)
+- **Framework:** Next.js 16 (App Router)
+- **Database:** Vercel Postgres (prod) / Docker Postgres (local, port 5437)
+- **ORM:** Prisma 7 with pg adapter
+- **Auth:** iron-session (dashboard), SHA-256 hashed API keys
+- **Push:** ntfy.sh
 
-Everything else:
-- Running `pnpm dev`
-- Running migrations
-- Seeding data
-- Testing API endpoints
-- Any database queries or changes
-
-## Local Development Setup
-
-### Prerequisites
-
-- Docker Desktop running
-- Node.js 20+
-- pnpm
-
-### Start Local Database
+## Commands
 
 ```bash
-docker compose up -d
+pnpm dev              # Start dev server
+pnpm build            # Production build
+pnpm lint             # ESLint
+pnpm db:push          # Push schema (dev)
+pnpm db:seed          # Seed channels + test keys
+pnpm db:studio        # Prisma GUI
+docker compose up -d  # Start local Postgres
 ```
 
-This starts Postgres on `localhost:5437` with:
-- Database: `notification_hub`
-- User: `postgres`
-- Password: `postgres`
+## API Routes
 
-### Environment Files
+| Route | Method | Auth | Purpose |
+|-------|--------|------|---------|
+| `/api/notifications` | POST | canSend | Create notification |
+| `/api/notifications` | GET | canRead/session | List with filters |
+| `/api/notifications/stream` | GET | canRead/session | SSE real-time |
+| `/api/notifications/unread-count` | GET | canRead/session | Badge count |
+| `/api/notifications/:id/read` | PATCH | canRead/session | Mark read |
+| `/api/notifications/read` | PATCH | canRead/session | Bulk mark read |
+| `/api/keys` | GET/POST | session | Manage API keys |
+| `/api/keys/:id` | GET/DELETE | session | Single key ops |
+| `/api/channels` | GET | canRead/session | List channels |
+| `/api/auth/login` | POST | none | Dashboard login |
+| `/api/cron/cleanup` | GET | CRON_SECRET | Delete old records |
+| `/api/cron/retry` | GET | CRON_SECRET | Retry failed pushes |
+| `/api/health` | GET | none | Health check |
+| `/api/metrics` | GET | none | Prometheus metrics |
 
-- `.env` - Local development (gitignored, uses Docker Postgres)
-- `.env.production` - Production values (gitignored, pulled from Vercel)
-- `.env.example` - Template with all required variables (committed)
+## Key Files
 
-### Common Commands
+- `prisma/schema.prisma` - Data model
+- `src/lib/auth.ts` - API key validation
+- `src/lib/ntfy.ts` - Push delivery with timeout
+- `src/lib/rate-limit.ts` - Per-key rate limiting
+- `src/lib/session.ts` - iron-session config
+- `docs/planning/notification-hub.md` - Full architecture spec
+
+## Environment
+
+**Always use LOCAL by default.** Production only when explicitly requested.
+
+- `.env` - Local (Docker Postgres)
+- `.env.production` - Vercel (gitignored)
+- `.env.example` - Template
+
+## Test API Key
 
 ```bash
-# Start local database
-docker compose up -d
-
-# Stop local database
-docker compose down
-
-# Reset local database (delete all data)
-docker compose down -v && docker compose up -d
-
-# Run migrations (local)
-pnpm db:migrate
-
-# Push schema changes (local, no migration file)
-pnpm db:push
-
-# Seed default channels (local)
-pnpm db:seed
-
-# Open Prisma Studio (local)
-pnpm db:studio
-
-# Start dev server
-pnpm dev
+curl -X POST http://localhost:3000/api/notifications \
+  -H "Authorization: Bearer nhk_test_sender_key_12345678" \
+  -H "Content-Type: application/json" \
+  -d '{"title": "Test", "message": "Hello"}'
 ```
 
-### Production Commands (ONLY when explicitly requested)
+## Context
 
-```bash
-# Pull production env vars
-vercel env pull .env.production
-
-# Deploy to production
-vercel --prod --token=TOKEN
-
-# Run migration on production (DANGEROUS - only when explicitly asked)
-DATABASE_URL="$PROD_URL" pnpm db:migrate
-```
-
-## Project Structure
-
-See `docs/planning/notification-hub.md` for full architecture and milestones.
-
-## Vercel Deployment
-
-Uses the `personal` Vercel account. See global CLAUDE.md for token handling.
+- Status: `context/STATUS.md`
+- Decisions: `context/DECISIONS.md`

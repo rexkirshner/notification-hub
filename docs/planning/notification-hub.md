@@ -655,7 +655,7 @@ This is a risk-reduction milestone. If streaming doesn't work as expected, we ne
   - Sends test event every 5s (counter or timestamp)
   - Runs for 60 seconds then closes
 - [x] Deploy to Vercel production (preview has auth protection)
-- [x] Test with curl: `curl -N https://notification-hub-two.vercel.app/api/test-stream`
+- [x] Test with curl: `curl -N https://notifications.scratchspace.dev/api/test-stream`
 - [x] Verify: immediate `: connected`, heartbeats arrive, events arrive
 - [x] Delete test endpoint after full Consumer API is implemented
 

@@ -10,7 +10,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { NotificationCard } from "./notification-card";
 import { Button } from "@/components/ui/button";
-import type { NotificationFiltersState } from "./notification-filters";
+import type { NotificationFiltersState } from "@/lib/filters";
 
 interface Notification {
   id: string;

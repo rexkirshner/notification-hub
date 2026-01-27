@@ -31,12 +31,8 @@ const PRIORITY_LABELS: Record<string, string> = {
   "1": "P1 (Min)",
 };
 
-export interface NotificationFiltersState {
-  channel: string | null;
-  category: string | null;
-  minPriority: number | null;
-  unreadOnly: boolean;
-}
+// Re-export from shared lib for backwards compatibility
+export type { NotificationFiltersState } from "@/lib/filters";
 
 export function NotificationFilters() {
   const router = useRouter();
@@ -158,31 +154,5 @@ export function NotificationFilters() {
   );
 }
 
-/**
- * Parse filter state from URL search params.
- * Used by parent components to pass filters to NotificationList.
- */
-export function parseFiltersFromParams(
-  searchParams: URLSearchParams
-): NotificationFiltersState {
-  const channel = searchParams.get("channel");
-  const category = searchParams.get("category");
-  const minPriorityStr = searchParams.get("minPriority");
-  const unreadOnly = searchParams.get("unreadOnly") === "true";
-
-  // Validate minPriority is a valid number 1-5
-  let minPriority: number | null = null;
-  if (minPriorityStr) {
-    const parsed = parseInt(minPriorityStr, 10);
-    if (!isNaN(parsed) && parsed >= 1 && parsed <= 5) {
-      minPriority = parsed;
-    }
-  }
-
-  return {
-    channel: channel && channel !== "all" ? channel : null,
-    category: category && category !== "all" ? category : null,
-    minPriority,
-    unreadOnly,
-  };
-}
+// parseFiltersFromParams moved to @/lib/filters for server component compatibility
+export { parseFiltersFromParams } from "@/lib/filters";

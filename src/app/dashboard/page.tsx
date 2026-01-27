@@ -7,10 +7,8 @@
 
 import { Suspense } from "react";
 import { NotificationList } from "@/components/dashboard/notification-list";
-import {
-  NotificationFilters,
-  parseFiltersFromParams,
-} from "@/components/dashboard/notification-filters";
+import { NotificationFilters } from "@/components/dashboard/notification-filters";
+import { parseFiltersFromParams } from "@/lib/filters";
 
 interface DashboardPageProps {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
