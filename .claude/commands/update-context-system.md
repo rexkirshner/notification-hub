@@ -67,14 +67,7 @@ Compare as semantic version strings (e.g., "6.0.1" vs "6.0.2").
 - Warn user (possible downgrade)
 - Ask if they want to proceed
 
-### 5. Backup Current State
-
-```bash
-cp -r .claude/commands/ .claude/commands-backup-[current-version]/
-cp .claude/VERSION .claude/VERSION.backup-[current-version]
-```
-
-### 6. Copy New Command Files
+### 5. Copy New Command Files
 
 ```bash
 rm -rf .claude/commands/
@@ -82,13 +75,19 @@ cp -r /tmp/acs-update/.claude/commands/ .claude/commands/
 cp /tmp/acs-update/.claude/VERSION .claude/VERSION
 ```
 
-### 7. Cleanup
+### 6. Cleanup
 
 ```bash
+# Remove temp clone
 rm -rf /tmp/acs-update
+
+# Remove legacy backup files from previous versions
+rm -rf .claude/commands-backup-*/
+rm -f .claude/VERSION.backup-*
+rm -rf .claude-backup-*/
 ```
 
-### 8. Verify
+### 7. Verify
 
 Run these checks:
 - `ls .claude/commands/` — Should have 8 command files (*.md)
@@ -103,13 +102,13 @@ If any step fails, clean up `/tmp/acs-update` before exiting.
 
 ## Rollback
 
-If update fails and user wants to restore:
+If update fails and user wants to restore, use git:
 
 ```bash
-rm -rf .claude/commands/
-mv .claude/commands-backup-[current-version]/ .claude/commands/
-mv .claude/VERSION.backup-[current-version] .claude/VERSION
+git checkout .claude/commands/ .claude/VERSION
 ```
+
+**Note:** This assumes `.claude/` is committed to your repository. If not, commit it before running updates.
 
 ## Done
 

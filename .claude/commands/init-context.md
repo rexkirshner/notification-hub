@@ -102,6 +102,17 @@ Append-only log.
 5. For created files, report "Created: [filename]"
 6. If CLAUDE.md is created, ask user to review and customize it
 7. If not a git repo, use "N/A" for HeadCommit
+8. **If CLAUDE.md already exists**, check if it contains the Session Loop block (look for "Session Loop" or "Read `context/STATUS.md`"). If not found, display the following message:
+
+   > **Important:** Your existing CLAUDE.md doesn't include the Session Loop — the core pattern that enables context persistence. Add this block to the top of your CLAUDE.md:
+   >
+   > ```markdown
+   > > **Session Loop**
+   > > 1. Start → Read `context/STATUS.md`
+   > > 2. End → Run `/save`
+   > ```
+   >
+   > This tells future AI sessions how to use the context system.
 
 ## Done
 
