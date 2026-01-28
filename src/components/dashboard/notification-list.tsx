@@ -233,7 +233,7 @@ export function NotificationList({ filters }: NotificationListProps) {
         </div>
       ) : notifications.length === 0 ? (
         <div className="text-center py-8 text-muted-foreground">
-          {filters.channel || filters.category || filters.unreadOnly
+          {filters.channel || filters.category || filters.minPriority || filters.unreadOnly
             ? "No notifications match the current filters"
             : "No notifications yet"}
         </div>
