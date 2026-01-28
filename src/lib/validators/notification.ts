@@ -66,17 +66,19 @@ const prioritySchema = z.union([
 
 /**
  * Schema for creating a notification.
+ *
+ * Note: `title` is ignored if provided. The notification title is always
+ * set to the API key's name for consistent attribution.
  */
 export const createNotificationSchema = z.object({
   // Required fields
-  title: z
-    .string()
-    .min(1, "title is required")
-    .max(200, "title must be at most 200 characters"),
   message: z
     .string()
     .min(1, "message is required")
     .max(10000, "message must be at most 10,000 characters"),
+
+  // Title is ignored (always uses API key name) but accepted for backwards compatibility
+  title: z.string().max(200).optional(),
 
   // Optional categorization
   source: z.string().max(100).optional(),

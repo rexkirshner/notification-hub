@@ -140,13 +140,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return response;
   }
 
+  // Title is always the API key name (not user-controllable)
+  const notificationTitle = authResult.apiKey.name;
+
+  // Priority 1-2 are "silent" (no push), 3-5 trigger push
+  const shouldSkipPush = input.skipPush || input.priority <= 2;
+
   // Handle idempotency if key is provided
   if (input.idempotencyKey) {
     const result = await createNotificationWithIdempotency(
       authResult.apiKey.id,
       input.idempotencyKey,
       {
-        title: input.title,
+        title: notificationTitle,
         message: input.message,
         markdown: input.markdown,
         source: input.source || authResult.apiKey.name,
@@ -156,7 +162,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         priority: input.priority,
         clickUrl: input.clickUrl,
         metadata: input.metadata as Prisma.InputJsonValue,
-        deliveryStatus: input.skipPush
+        deliveryStatus: shouldSkipPush
           ? DeliveryStatus.SKIPPED
           : DeliveryStatus.PENDING,
         apiKey: { connect: { id: authResult.apiKey.id } },
@@ -182,7 +188,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // No idempotency key - create notification directly
     notification = await db.notification.create({
       data: {
-        title: input.title,
+        title: notificationTitle,
         message: input.message,
         markdown: input.markdown,
         source: input.source || authResult.apiKey.name,
@@ -192,7 +198,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         priority: input.priority,
         clickUrl: input.clickUrl,
         metadata: input.metadata as Prisma.InputJsonValue,
-        deliveryStatus: input.skipPush
+        deliveryStatus: shouldSkipPush
           ? DeliveryStatus.SKIPPED
           : DeliveryStatus.PENDING,
         apiKeyId: authResult.apiKey.id,
@@ -203,8 +209,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     });
   }
 
-  // If skipPush, return immediately
-  if (input.skipPush) {
+  // If skipping push (explicit skipPush or low priority), return immediately
+  if (shouldSkipPush) {
     incCounter("notifications_created");
     incCounter("notifications_skipped");
     recordDuration("post_latency", Date.now() - startTime);
@@ -220,7 +226,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   // Attempt ntfy push
   const topic = getNtfyTopic(channel.ntfyTopic);
   const pushResult = await sendNtfyPush(topic, {
-    title: input.title,
+    title: notificationTitle,
     message: input.message,
     priority: input.priority,
     tags: input.tags.length > 0 ? input.tags : undefined,
