@@ -24,11 +24,11 @@ const PRIORITIES = ["all", "5", "4", "3", "2", "1"] as const;
 
 const PRIORITY_LABELS: Record<string, string> = {
   all: "All Priorities",
-  "5": "P5 (Urgent)",
-  "4": "P4 (High)",
+  "5": "P5 (Emergency)",
+  "4": "P4 (Urgent)",
   "3": "P3 (Normal)",
-  "2": "P2 (Low)",
-  "1": "P1 (Min)",
+  "2": "P2 (Background)",
+  "1": "P1 (System)",
 };
 
 export function NotificationFilters() {

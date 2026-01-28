@@ -143,7 +143,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   // Title is always the API key name (not user-controllable)
   const notificationTitle = authResult.apiKey.name;
 
-  // Priority 1-2 are "silent" (no push), 3-5 trigger push
+  // Priority 1 (System) and 2 (Background) are silent - no push notification
+  // Priority 3 (Normal), 4 (Urgent), 5 (Emergency) trigger push
   const shouldSkipPush = input.skipPush || input.priority <= 2;
 
   // Handle idempotency if key is provided

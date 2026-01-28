@@ -37,7 +37,7 @@ export async function GET(): Promise<NextResponse> {
           required: false,
           default: 3,
           enum: [1, 2, 3, 4, 5],
-          description: "1-2 = silent (no push), 3 = normal, 4-5 = high priority",
+          description: "1 = system/logging, 2 = background, 3 = normal (default), 4 = urgent, 5 = emergency. Levels 1-2 are silent (no push).",
         },
         category: {
           type: "string",
@@ -79,7 +79,7 @@ export async function GET(): Promise<NextResponse> {
           type: "boolean",
           required: false,
           default: false,
-          description: "Store without pushing (priority 1-2 also skip push)",
+          description: "Store without pushing. Priority 1 (System) and 2 (Background) automatically skip push.",
         },
         source: {
           type: "string",
@@ -101,11 +101,11 @@ export async function GET(): Promise<NextResponse> {
     },
 
     priorityLevels: {
-      1: { name: "Minimum", push: false, description: "Silent, dashboard only" },
-      2: { name: "Low", push: false, description: "Silent, dashboard only" },
-      3: { name: "Normal", push: true, description: "Standard push notification" },
-      4: { name: "High", push: true, description: "Push with high priority" },
-      5: { name: "Urgent", push: true, description: "Push with maximum priority" },
+      1: { name: "System", push: false, description: "System-level logging and audit messages. No push notification." },
+      2: { name: "Background", push: false, description: "Application messages that don't need immediate attention. No push notification." },
+      3: { name: "Normal", push: true, description: "Standard notifications. Triggers push notification (default)." },
+      4: { name: "Urgent", push: true, description: "Important notifications requiring prompt attention. High-priority push." },
+      5: { name: "Emergency", push: true, description: "Critical alerts requiring immediate action. Maximum priority push." },
     },
 
     otherEndpoints: {

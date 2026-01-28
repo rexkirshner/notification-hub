@@ -54,7 +54,11 @@ const metadataSchema = z
 
 /**
  * Priority levels (1-5, matching ntfy).
- * 1 = min, 3 = default, 5 = max/urgent
+ * 1 = System (logging, no push)
+ * 2 = Background (no push)
+ * 3 = Normal (default, push)
+ * 4 = Urgent (high priority push)
+ * 5 = Emergency (max priority push)
  */
 const prioritySchema = z.union([
   z.literal(1),
