@@ -94,10 +94,10 @@ export async function GET(): Promise<NextResponse> {
           description: "Render message as markdown in push notifications",
         },
       },
-      notes: {
-        title: "The notification title is automatically set to your API key name. This cannot be overridden.",
-        source: "Defaults to API key name, can be overridden per-request",
-      },
+      notes: [
+        "The notification title is always set to your API key name (cannot be overridden)",
+        "The source field defaults to your API key name but can be overridden per-request",
+      ],
     },
 
     priorityLevels: {
