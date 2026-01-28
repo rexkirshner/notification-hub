@@ -31,9 +31,6 @@ const PRIORITY_LABELS: Record<string, string> = {
   "1": "P1 (Min)",
 };
 
-// Re-export from shared lib for backwards compatibility
-export type { NotificationFiltersState } from "@/lib/filters";
-
 export function NotificationFilters() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -153,6 +150,3 @@ export function NotificationFilters() {
     </div>
   );
 }
-
-// parseFiltersFromParams moved to @/lib/filters for server component compatibility
-export { parseFiltersFromParams } from "@/lib/filters";
