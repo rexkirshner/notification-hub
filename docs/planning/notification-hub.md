@@ -891,12 +891,14 @@ notification-hub/
 ├── .vercel-account
 ├── package.json
 ├── next.config.ts
-├── tailwind.config.ts
 │
 ├── prisma/
 │   ├── schema.prisma
-│   ├── seed.ts              # Seed default channels
-│   └── migrations/
+│   └── seed.ts              # Seed channels + test keys
+│
+├── sdk/
+│   ├── index.ts             # TypeScript SDK
+│   └── README.md
 │
 ├── src/
 │   ├── app/
@@ -904,42 +906,50 @@ notification-hub/
 │   │   ├── page.tsx         # Redirect to dashboard or landing
 │   │   │
 │   │   ├── api/
+│   │   │   ├── auth/
+│   │   │   │   ├── login/route.ts
+│   │   │   │   ├── logout/route.ts
+│   │   │   │   └── session/route.ts
 │   │   │   ├── health/route.ts
+│   │   │   ├── metrics/route.ts
+│   │   │   ├── usage/route.ts
 │   │   │   ├── notifications/
 │   │   │   │   ├── route.ts              # GET list, POST create
 │   │   │   │   ├── stream/route.ts       # GET SSE stream
 │   │   │   │   ├── unread-count/route.ts # GET count
 │   │   │   │   ├── read/route.ts         # PATCH bulk mark read
 │   │   │   │   └── [id]/
-│   │   │   │       ├── route.ts          # GET single, DELETE
+│   │   │   │       ├── route.ts          # GET single
 │   │   │   │       └── read/route.ts     # PATCH mark single read
 │   │   │   ├── channels/route.ts
 │   │   │   ├── keys/
-│   │   │   │   ├── route.ts
-│   │   │   │   └── [id]/route.ts
-│   │   │   └── audit/route.ts
-│   │   │
+│   │   │   │   ├── route.ts              # GET list, POST create
+│   │   │   │   └── [id]/route.ts         # GET detail, DELETE revoke
+│   │   │   ├── cron/
+│   │   │   │   ├── cleanup/route.ts
+│   │   │   │   └── retry/route.ts
+│   │   │   │
+│   │   │   │
 │   │   ├── login/page.tsx
 │   │   │
 │   │   └── dashboard/
 │   │       ├── layout.tsx
 │   │       ├── page.tsx              # Notification list
-│   │       ├── settings/page.tsx     # API keys
-│   │       └── audit/page.tsx        # Audit log
+│   │       └── settings/page.tsx     # API keys
 │   │
 │   ├── components/
 │   │   ├── ui/                       # shadcn
+│   │   ├── dashboard/               # Dashboard-specific components
 │   │   └── notifications/
 │   │
-│   ├── lib/
-│   │   ├── db.ts                     # Prisma singleton
-│   │   ├── auth.ts                   # Session + API key validation
-│   │   ├── csrf.ts                   # CSRF token helpers
-│   │   ├── ntfy.ts                   # Push delivery
-│   │   ├── idempotency.ts            # Idempotency logic
-│   │   └── validators/               # Zod schemas
-│   │
-│   └── middleware.ts
+│   └── lib/
+│       ├── db.ts                     # Prisma singleton
+│       ├── auth.ts                   # API key + session validation
+│       ├── session.ts                # iron-session config
+│       ├── ntfy.ts                   # Push delivery
+│       ├── rate-limit.ts             # Per-key rate limiting
+│       ├── metrics.ts                # In-memory counters
+│       └── validators/               # Zod schemas
 │
 └── docs/
     └── planning/
