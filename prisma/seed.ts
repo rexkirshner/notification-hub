@@ -69,6 +69,7 @@ interface TestApiKey {
   description: string;
   canSend: boolean;
   canRead: boolean;
+  canManageKeys: boolean;
 }
 
 const testApiKeys: TestApiKey[] = [
@@ -78,6 +79,7 @@ const testApiKeys: TestApiKey[] = [
     description: "Test API key for sending notifications (canSend only)",
     canSend: true,
     canRead: false,
+    canManageKeys: false,
   },
   {
     key: "nhk_test_reader_key_12345678",
@@ -85,6 +87,7 @@ const testApiKeys: TestApiKey[] = [
     description: "Test API key for reading notifications (canRead only)",
     canSend: false,
     canRead: true,
+    canManageKeys: false,
   },
   {
     key: "nhk_test_full_key_123456789",
@@ -92,6 +95,7 @@ const testApiKeys: TestApiKey[] = [
     description: "Test API key with full access (development only)",
     canSend: true,
     canRead: true,
+    canManageKeys: true,
   },
 ];
 
@@ -126,6 +130,7 @@ async function main() {
           description: apiKey.description,
           canSend: apiKey.canSend,
           canRead: apiKey.canRead,
+          canManageKeys: apiKey.canManageKeys,
         },
         create: {
           name: apiKey.name,
@@ -134,11 +139,12 @@ async function main() {
           description: apiKey.description,
           canSend: apiKey.canSend,
           canRead: apiKey.canRead,
+          canManageKeys: apiKey.canManageKeys,
         },
       });
       console.log(`  API Key: ${result.name} (${result.prefix}...)`);
       console.log(`    Key: ${apiKey.key}`);
-      console.log(`    Permissions: canSend=${result.canSend}, canRead=${result.canRead}`);
+      console.log(`    Permissions: canSend=${result.canSend}, canRead=${result.canRead}, canManageKeys=${result.canManageKeys}`);
     }
   } else {
     console.log("\nSkipping test API keys (production environment)");
