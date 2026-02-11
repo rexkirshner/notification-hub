@@ -1,10 +1,8 @@
 /**
  * API Keys Management Endpoints
  *
- * GET /api/keys - List all API keys (session only)
- * POST /api/keys - Create a new API key (session only)
- *
- * Admin-only endpoints for managing API keys.
+ * GET /api/keys - List all API keys (session or canManageKeys)
+ * POST /api/keys - Create a new API key (session or canManageKeys)
  */
 
 import { NextRequest, NextResponse } from "next/server";

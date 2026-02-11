@@ -1,8 +1,8 @@
 /**
  * Single API Key Endpoint
  *
- * GET /api/keys/:id - Get key details (session only)
- * DELETE /api/keys/:id - Revoke a key (session only)
+ * GET /api/keys/:id - Get key details (session or canManageKeys)
+ * DELETE /api/keys/:id - Revoke a key (session or canManageKeys)
  */
 
 import { NextRequest, NextResponse } from "next/server";
