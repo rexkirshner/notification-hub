@@ -1161,7 +1161,7 @@ func markAsRead(id: String) async throws {
 - [x] minPriority filter supported in both list API and stream API
 - [x] Invalid URL params handled gracefully (validated before use)
 
-### After Milestone 3 (In Progress)
+### After Milestone 3 ✅
 - [x] Queries fast with 10k+ notifications (verified: all < 100ms, avg 5.2ms)
 - [x] GIN index on tags column
 - [x] Partial index for unread notifications
