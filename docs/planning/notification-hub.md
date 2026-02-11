@@ -370,10 +370,10 @@ DELETE /api/notifications/:id       # session only
 
 ```
 GET    /api/channels                # canRead or session
-POST   /api/keys                    # session only
-GET    /api/keys                    # session only
-DELETE /api/keys/:id                # session only
-GET    /api/audit                   # session only
+POST   /api/keys                    # canManageKeys or session
+GET    /api/keys                    # canManageKeys or session
+GET    /api/keys/:id                # canManageKeys or session
+DELETE /api/keys/:id                # canManageKeys or session
 GET    /api/health                  # public
 ```
 
