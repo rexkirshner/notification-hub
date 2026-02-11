@@ -1,7 +1,3 @@
-> **Session Loop**
-> 1. Start → Read `context/STATUS.md`
-> 2. End → Run `/save`
-
 # Notification Hub
 
 Centralized notification system: projects send via HTTP API, delivered to web dashboard + iOS push via ntfy.sh.
@@ -75,7 +71,3 @@ curl -X POST http://localhost:3000/api/notifications \
   -d '{"title": "Test", "message": "Hello"}'
 ```
 
-## Context
-
-- Status: `context/STATUS.md`
-- Decisions: `context/DECISIONS.md`
