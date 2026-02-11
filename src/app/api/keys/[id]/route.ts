@@ -28,15 +28,18 @@ export async function GET(
   const { id } = await params;
 
   const sessionAuth = await isAuthenticated();
-  const authHeader = request.headers.get("authorization");
+  const authHeader = request.headers.get("Authorization");
   const auth = await validateApiKeyOrSession(authHeader, sessionAuth);
 
   if (!auth.success) {
     return NextResponse.json({ error: auth.error }, { status: 401 });
   }
 
-  if (!auth.isSession && !hasPermission(auth.apiKey!, "canManageKeys")) {
-    return NextResponse.json({ error: "Forbidden: canManageKeys permission required" }, { status: 403 });
+  if (!auth.isSession && auth.apiKey && !hasPermission(auth.apiKey, "canManageKeys")) {
+    return NextResponse.json(
+      { error: "API key does not have manage keys permission" },
+      { status: 403 }
+    );
   }
 
   const key = await db.apiKey.findUnique({
@@ -79,15 +82,18 @@ export async function DELETE(
   const { id } = await params;
 
   const sessionAuth = await isAuthenticated();
-  const authHeader = request.headers.get("authorization");
+  const authHeader = request.headers.get("Authorization");
   const auth = await validateApiKeyOrSession(authHeader, sessionAuth);
 
   if (!auth.success) {
     return NextResponse.json({ error: auth.error }, { status: 401 });
   }
 
-  if (!auth.isSession && !hasPermission(auth.apiKey!, "canManageKeys")) {
-    return NextResponse.json({ error: "Forbidden: canManageKeys permission required" }, { status: 403 });
+  if (!auth.isSession && auth.apiKey && !hasPermission(auth.apiKey, "canManageKeys")) {
+    return NextResponse.json(
+      { error: "API key does not have manage keys permission" },
+      { status: 403 }
+    );
   }
 
   // Check if key exists
@@ -119,7 +125,7 @@ export async function DELETE(
       data: {
         action: AuditAction.API_KEY_REVOKED,
         actorType: auth.isSession ? ActorType.ADMIN : ActorType.API_KEY,
-        actorId: auth.isSession ? null : auth.apiKey!.id,
+        actorId: auth.apiKey?.id ?? null,
         targetType: "api_key",
         targetId: id,
         metadata: {

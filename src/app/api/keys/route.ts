@@ -41,15 +41,18 @@ const createKeySchema = z.object({
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const sessionAuth = await isAuthenticated();
-  const authHeader = request.headers.get("authorization");
+  const authHeader = request.headers.get("Authorization");
   const auth = await validateApiKeyOrSession(authHeader, sessionAuth);
 
   if (!auth.success) {
     return NextResponse.json({ error: auth.error }, { status: 401 });
   }
 
-  if (!auth.isSession && !hasPermission(auth.apiKey!, "canManageKeys")) {
-    return NextResponse.json({ error: "Forbidden: canManageKeys permission required" }, { status: 403 });
+  if (!auth.isSession && auth.apiKey && !hasPermission(auth.apiKey, "canManageKeys")) {
+    return NextResponse.json(
+      { error: "API key does not have manage keys permission" },
+      { status: 403 }
+    );
   }
 
   const keys = await db.apiKey.findMany({
@@ -80,15 +83,18 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const sessionAuth = await isAuthenticated();
-  const authHeader = request.headers.get("authorization");
+  const authHeader = request.headers.get("Authorization");
   const auth = await validateApiKeyOrSession(authHeader, sessionAuth);
 
   if (!auth.success) {
     return NextResponse.json({ error: auth.error }, { status: 401 });
   }
 
-  if (!auth.isSession && !hasPermission(auth.apiKey!, "canManageKeys")) {
-    return NextResponse.json({ error: "Forbidden: canManageKeys permission required" }, { status: 403 });
+  if (!auth.isSession && auth.apiKey && !hasPermission(auth.apiKey, "canManageKeys")) {
+    return NextResponse.json(
+      { error: "API key does not have manage keys permission" },
+      { status: 403 }
+    );
   }
 
   // Parse request body
@@ -139,7 +145,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       data: {
         action: AuditAction.API_KEY_CREATED,
         actorType: auth.isSession ? ActorType.ADMIN : ActorType.API_KEY,
-        actorId: auth.isSession ? null : auth.apiKey!.id,
+        actorId: auth.apiKey?.id ?? null,
         targetType: "api_key",
         targetId: apiKey.id,
         metadata: {
