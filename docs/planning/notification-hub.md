@@ -203,9 +203,10 @@ model ApiKey {
   keyHash     String   @unique // SHA-256
   prefix      String   @unique // "nhk_abc1..." for display, unique avoids UI confusion
 
-  canSend     Boolean  @default(true)
-  canRead     Boolean  @default(false)
-  rateLimit   Int      @default(100) // RPM
+  canSend       Boolean  @default(true)
+  canRead       Boolean  @default(false)
+  canManageKeys Boolean  @default(false)
+  rateLimit     Int      @default(100) // RPM
 
   description String?
   lastUsedAt  DateTime?
