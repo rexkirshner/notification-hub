@@ -165,6 +165,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       prefix: apiKey.prefix,
       canSend: apiKey.canSend,
       canRead: apiKey.canRead,
+      canManageKeys: apiKey.canManageKeys,
       rateLimit: apiKey.rateLimit,
       expiresAt: apiKey.expiresAt,
       createdAt: apiKey.createdAt,
