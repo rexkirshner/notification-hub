@@ -57,10 +57,10 @@ A centralized notification system where any project can send notifications via H
 | **Channels** | | |
 | `GET /api/channels` | `canRead` OR session | List channels |
 | **Admin** | | |
-| `POST /api/keys` | Session only | Create key |
-| `GET /api/keys` | Session only | List keys |
-| `DELETE /api/keys/:id` | Session only | Revoke key |
-| `GET /api/audit` | Session only | Audit log |
+| `POST /api/keys` | `canManageKeys` OR session | Create key |
+| `GET /api/keys` | `canManageKeys` OR session | List keys |
+| `GET /api/keys/:id` | `canManageKeys` OR session | Get key details |
+| `DELETE /api/keys/:id` | `canManageKeys` OR session | Revoke key |
 | **Public** | | |
 | `GET /api/health` | None | Health check |
 
