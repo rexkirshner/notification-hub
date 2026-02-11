@@ -40,8 +40,8 @@ docker compose up -d  # Start local Postgres
 | `/api/notifications/unread-count` | GET | canRead/session | Badge count |
 | `/api/notifications/:id/read` | PATCH | canRead/session | Mark read |
 | `/api/notifications/read` | PATCH | canRead/session | Bulk mark read |
-| `/api/keys` | GET/POST | session | Manage API keys |
-| `/api/keys/:id` | GET/DELETE | session | Single key ops |
+| `/api/keys` | GET/POST | canManageKeys/session | Manage API keys |
+| `/api/keys/:id` | GET/DELETE | canManageKeys/session | Single key ops |
 | `/api/channels` | GET | canRead/session | List channels |
 | `/api/auth/login` | POST | none | Dashboard login |
 | `/api/cron/cleanup` | GET | CRON_SECRET | Delete old records |
