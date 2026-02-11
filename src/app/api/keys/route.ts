@@ -10,7 +10,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { isAuthenticated } from "@/lib/session";
-import { generateApiKey } from "@/lib/auth";
+import { generateApiKey, validateApiKeyOrSession, hasPermission } from "@/lib/auth";
 import { z } from "zod";
 import { AuditAction, ActorType } from "@prisma/client";
 
@@ -21,6 +21,7 @@ const createKeySchema = z.object({
   description: z.string().max(500).optional(),
   canSend: z.boolean().default(true),
   canRead: z.boolean().default(false),
+  canManageKeys: z.boolean().default(false),
   rateLimit: z.number().int().min(1).max(10000).default(100),
   expiresAt: z
     .string()
@@ -40,11 +41,17 @@ const createKeySchema = z.object({
  * GET /api/keys
  * List all API keys (prefix only, not the full key).
  */
-export async function GET(): Promise<NextResponse> {
-  // Session auth only
-  const authenticated = await isAuthenticated();
-  if (!authenticated) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+export async function GET(request: NextRequest): Promise<NextResponse> {
+  const sessionAuth = await isAuthenticated();
+  const authHeader = request.headers.get("authorization");
+  const auth = await validateApiKeyOrSession(authHeader, sessionAuth);
+
+  if (!auth.success) {
+    return NextResponse.json({ error: auth.error }, { status: 401 });
+  }
+
+  if (!auth.isSession && !hasPermission(auth.apiKey!, "canManageKeys")) {
+    return NextResponse.json({ error: "Forbidden: canManageKeys permission required" }, { status: 403 });
   }
 
   const keys = await db.apiKey.findMany({
@@ -56,6 +63,7 @@ export async function GET(): Promise<NextResponse> {
       description: true,
       canSend: true,
       canRead: true,
+      canManageKeys: true,
       rateLimit: true,
       isActive: true,
       lastUsedAt: true,
@@ -73,10 +81,16 @@ export async function GET(): Promise<NextResponse> {
  * Returns the full key ONCE - it cannot be retrieved later.
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  // Session auth only
-  const authenticated = await isAuthenticated();
-  if (!authenticated) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const sessionAuth = await isAuthenticated();
+  const authHeader = request.headers.get("authorization");
+  const auth = await validateApiKeyOrSession(authHeader, sessionAuth);
+
+  if (!auth.success) {
+    return NextResponse.json({ error: auth.error }, { status: 401 });
+  }
+
+  if (!auth.isSession && !hasPermission(auth.apiKey!, "canManageKeys")) {
+    return NextResponse.json({ error: "Forbidden: canManageKeys permission required" }, { status: 403 });
   }
 
   // Parse request body
@@ -115,6 +129,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       description: input.description,
       canSend: input.canSend,
       canRead: input.canRead,
+      canManageKeys: input.canManageKeys,
       rateLimit: input.rateLimit,
       expiresAt: input.expiresAt,
     },
@@ -125,13 +140,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     .create({
       data: {
         action: AuditAction.API_KEY_CREATED,
-        actorType: ActorType.ADMIN,
+        actorType: auth.isSession ? ActorType.ADMIN : ActorType.API_KEY,
+        actorId: auth.isSession ? null : auth.apiKey!.id,
         targetType: "api_key",
         targetId: apiKey.id,
         metadata: {
           keyName: apiKey.name,
           canSend: apiKey.canSend,
           canRead: apiKey.canRead,
+          canManageKeys: apiKey.canManageKeys,
         },
       },
     })

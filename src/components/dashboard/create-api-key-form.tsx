@@ -26,6 +26,7 @@ interface CreatedKey {
   key: string;
   canSend: boolean;
   canRead: boolean;
+  canManageKeys: boolean;
 }
 
 export function CreateApiKeyForm() {
@@ -33,6 +34,7 @@ export function CreateApiKeyForm() {
   const [description, setDescription] = useState("");
   const [canSend, setCanSend] = useState(true);
   const [canRead, setCanRead] = useState(false);
+  const [canManageKeys, setCanManageKeys] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [createdKey, setCreatedKey] = useState<CreatedKey | null>(null);
@@ -52,6 +54,7 @@ export function CreateApiKeyForm() {
           description: description || undefined,
           canSend,
           canRead,
+          canManageKeys,
         }),
       });
 
@@ -67,6 +70,7 @@ export function CreateApiKeyForm() {
         key: data.key,
         canSend: data.canSend,
         canRead: data.canRead,
+        canManageKeys: data.canManageKeys,
       });
 
       // Reset form
@@ -74,6 +78,7 @@ export function CreateApiKeyForm() {
       setDescription("");
       setCanSend(true);
       setCanRead(false);
+      setCanManageKeys(false);
 
       // Notify the list to refresh
       window.dispatchEvent(new CustomEvent("apikey-created"));
@@ -148,6 +153,16 @@ export function CreateApiKeyForm() {
                   Can read notifications
                 </Label>
               </div>
+              <div className="flex items-center gap-2">
+                <Switch
+                  id="canManageKeys"
+                  checked={canManageKeys}
+                  onCheckedChange={setCanManageKeys}
+                />
+                <Label htmlFor="canManageKeys" className="text-sm font-normal">
+                  Can manage keys
+                </Label>
+              </div>
             </div>
 
             {error && <p className="text-sm text-destructive">{error}</p>}
@@ -198,6 +213,9 @@ export function CreateApiKeyForm() {
               )}
               {createdKey?.canRead && (
                 <span className="px-2 py-1 bg-muted rounded">Read</span>
+              )}
+              {createdKey?.canManageKeys && (
+                <span className="px-2 py-1 bg-muted rounded">Manage</span>
               )}
             </div>
 

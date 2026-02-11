@@ -111,7 +111,7 @@ export async function validateApiKey(
  */
 export function hasPermission(
   apiKey: ApiKey,
-  permission: "canSend" | "canRead"
+  permission: "canSend" | "canRead" | "canManageKeys"
 ): boolean {
   return apiKey[permission];
 }

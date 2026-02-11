@@ -18,6 +18,7 @@ interface ApiKey {
   description: string | null;
   canSend: boolean;
   canRead: boolean;
+  canManageKeys: boolean;
   rateLimit: number;
   isActive: boolean;
   lastUsedAt: string | null;
@@ -117,6 +118,7 @@ export function ApiKeyList() {
               <div className="flex items-center gap-2 flex-shrink-0">
                 {key.canSend && <Badge variant="outline">Send</Badge>}
                 {key.canRead && <Badge variant="outline">Read</Badge>}
+                {key.canManageKeys && <Badge variant="outline">Manage</Badge>}
                 {key.isActive && (
                   <Button
                     variant="destructive"

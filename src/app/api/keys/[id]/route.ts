@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { isAuthenticated } from "@/lib/session";
+import { validateApiKeyOrSession, hasPermission } from "@/lib/auth";
 import { AuditAction, ActorType } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -26,10 +27,16 @@ export async function GET(
 ): Promise<NextResponse> {
   const { id } = await params;
 
-  // Session auth only
-  const authenticated = await isAuthenticated();
-  if (!authenticated) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const sessionAuth = await isAuthenticated();
+  const authHeader = request.headers.get("authorization");
+  const auth = await validateApiKeyOrSession(authHeader, sessionAuth);
+
+  if (!auth.success) {
+    return NextResponse.json({ error: auth.error }, { status: 401 });
+  }
+
+  if (!auth.isSession && !hasPermission(auth.apiKey!, "canManageKeys")) {
+    return NextResponse.json({ error: "Forbidden: canManageKeys permission required" }, { status: 403 });
   }
 
   const key = await db.apiKey.findUnique({
@@ -41,6 +48,7 @@ export async function GET(
       description: true,
       canSend: true,
       canRead: true,
+      canManageKeys: true,
       rateLimit: true,
       isActive: true,
       lastUsedAt: true,
@@ -70,10 +78,16 @@ export async function DELETE(
 ): Promise<NextResponse> {
   const { id } = await params;
 
-  // Session auth only
-  const authenticated = await isAuthenticated();
-  if (!authenticated) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const sessionAuth = await isAuthenticated();
+  const authHeader = request.headers.get("authorization");
+  const auth = await validateApiKeyOrSession(authHeader, sessionAuth);
+
+  if (!auth.success) {
+    return NextResponse.json({ error: auth.error }, { status: 401 });
+  }
+
+  if (!auth.isSession && !hasPermission(auth.apiKey!, "canManageKeys")) {
+    return NextResponse.json({ error: "Forbidden: canManageKeys permission required" }, { status: 403 });
   }
 
   // Check if key exists
@@ -104,7 +118,8 @@ export async function DELETE(
     .create({
       data: {
         action: AuditAction.API_KEY_REVOKED,
-        actorType: ActorType.ADMIN,
+        actorType: auth.isSession ? ActorType.ADMIN : ActorType.API_KEY,
+        actorId: auth.isSession ? null : auth.apiKey!.id,
         targetType: "api_key",
         targetId: id,
         metadata: {
