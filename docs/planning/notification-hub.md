@@ -379,11 +379,12 @@ GET    /api/health                  # public
 
 ### API Key Types
 
-| Key Type | canSend | canRead | Use Case |
-|----------|---------|---------|----------|
-| Sender | ✓ | ✗ | CI pipelines, webhooks, scripts |
-| Consumer | ✗ | ✓ | macOS app, CLI tool, widgets |
-| Full | ✓ | ✓ | Development/testing only |
+| Key Type | canSend | canRead | canManageKeys | Use Case |
+|----------|---------|---------|---------------|----------|
+| Sender | ✓ | ✗ | ✗ | CI pipelines, webhooks, scripts |
+| Consumer | ✗ | ✓ | ✗ | macOS app, CLI tool, widgets |
+| Manager | ✗ | ✗ | ✓ | Automated key provisioning |
+| Full | ✓ | ✓ | ✓ | Development/testing only |
 
 ### POST /api/notifications
 
