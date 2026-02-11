@@ -40,6 +40,9 @@ docker compose up -d  # Start local Postgres
 | `/api/keys/:id` | GET/DELETE | canManageKeys/session | Single key ops |
 | `/api/channels` | GET | canRead/session | List channels |
 | `/api/auth/login` | POST | none | Dashboard login |
+| `/api/auth/logout` | POST | session | Dashboard logout |
+| `/api/auth/session` | GET | session | Session check |
+| `/api/usage` | GET | session | Usage stats |
 | `/api/cron/cleanup` | GET | CRON_SECRET | Delete old records |
 | `/api/cron/retry` | GET | CRON_SECRET | Retry failed pushes |
 | `/api/health` | GET | none | Health check |
